@@ -1,0 +1,28 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: marathas-utility-backend
+  servlet:
+    session:
+      timeout: 30m
+
+github:
+  oauth:
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/github/callback}
+    frontend-success-url: ${FRONTEND_SUCCESS_URL:http://localhost:5174/?github=connected}
+    personal-token: ${GITHUB_PERSONAL_TOKEN:}
+
+ldap:
+  auth-mode: ${LDAP_AUTH_MODE:${AUTH_MODE:ldap}}
+  dummy-id: ${DUMMY_ID:admin}
+  dummy-password: ${DUMMY_PASSWORD:admin}
+  external-url: ${LDAP_EXTERNAL_URL:https://dev.r53.stratas.net/cm/login}
+  external-submit-value: ${LDAP_EXTERNAL_SUBMIT_VALUE:Login}
+  url: ${LDAP_URL:ldap://localhost:389}
+  base-dn: ${LDAP_BASE_DN:dc=example,dc=com}
+  user-search-base: ${LDAP_USER_SEARCH_BASE:}
+  user-search-filter: ${LDAP_USER_SEARCH_FILTER:uid={0}}

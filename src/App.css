@@ -1,0 +1,43 @@
+.login-wrapper {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #f6f8ff, #eef3ff);
+  padding: 24px;
+}
+
+.login-card {
+  width: min(420px, 100%);
+  border-radius: 16px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.08);
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.brand {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 16px;
+  text-align: center;
+}
+
+.app-header {
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  padding: 0 20px;
+}
+
+.app-content {
+  margin: 20px;
+}
+
+.app-footer {
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  color: #595959;
+  padding: 16px 20px 24px;
+  text-align: center;
+}
