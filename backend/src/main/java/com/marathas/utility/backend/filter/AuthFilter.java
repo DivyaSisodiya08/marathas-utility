@@ -9,14 +9,11 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 
-import static org.springframework.http.HttpStatus.UNAUTHORIZED;
-
 @Component
-public class LdapAuthFilter implements Filter {
+public class AuthFilter implements Filter {
 
     private static final String[] PUBLIC_PATHS = {"/api/auth/login", "/api/auth/logout", "/health"};
 
@@ -33,9 +30,10 @@ public class LdapAuthFilter implements Filter {
             return;
         }
 
-        String ldapUser = (String) httpRequest.getSession().getAttribute(AuthController.LDAP_USER_KEY);
+        String authenticatedUser = (String) httpRequest.getSession()
+                .getAttribute(AuthController.AUTHENTICATED_USER_KEY);
 
-        if (ldapUser == null) {
+        if (authenticatedUser == null) {
             httpResponse.setStatus(401);
             httpResponse.setContentType("application/json");
             httpResponse.getWriter().write("{\"error\":\"Unauthorized\"}");

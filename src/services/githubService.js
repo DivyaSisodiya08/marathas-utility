@@ -6,12 +6,21 @@ const REPOS_CACHE_KEY = 'github_repos_cache_v2'
 
 function readReposCache() {
   try {
-    const raw = sessionStorage.getItem(REPOS_CACHE_KEY)
-    if (!raw) {
+    const sessionRaw = sessionStorage.getItem(REPOS_CACHE_KEY)
+    if (sessionRaw) {
+      const sessionParsed = JSON.parse(sessionRaw)
+      if (Array.isArray(sessionParsed)) {
+        return sessionParsed
+      }
+    }
+
+    const localRaw = localStorage.getItem(REPOS_CACHE_KEY)
+    if (!localRaw) {
       return null
     }
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : null
+
+    const localParsed = JSON.parse(localRaw)
+    return Array.isArray(localParsed) ? localParsed : null
   } catch {
     return null
   }
@@ -20,6 +29,7 @@ function readReposCache() {
 function writeReposCache(repos) {
   try {
     sessionStorage.setItem(REPOS_CACHE_KEY, JSON.stringify(repos))
+    localStorage.setItem(REPOS_CACHE_KEY, JSON.stringify(repos))
   } catch {
     // Ignore cache write failures and continue with API data.
   }
@@ -98,6 +108,25 @@ export async function createUpgradePullRequest(request) {
 
   if (!response.ok) {
     throw new Error(payload?.message || 'Failed to create upgrade pull request')
+  }
+
+  return payload
+}
+
+export async function createPullRequest(request) {
+  const response = await fetch('/api/github/pr', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Failed to create pull request')
   }
 
   return payload

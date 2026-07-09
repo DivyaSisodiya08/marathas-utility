@@ -2,12 +2,12 @@ async function parseJsonSafe(response) {
   return response.json().catch(() => ({}))
 }
 
-export async function login(ldapId, password) {
+export async function login(loginId, password) {
   const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ ldapId, password }),
+    body: JSON.stringify({ loginId, password }),
   })
 
   const payload = await parseJsonSafe(response)

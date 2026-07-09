@@ -2,15 +2,15 @@ package com.marathas.utility.backend.model;
 
 public class AuthResponse {
 
-    private boolean success;
-    private String message;
-    private String ldapId;
-    private boolean hasGithubAccess;
+    private final boolean success;
+    private final String message;
+    private final String loginId;
+    private final boolean hasGithubAccess;
 
-    public AuthResponse(boolean success, String message, String ldapId, boolean hasGithubAccess) {
+    public AuthResponse(boolean success, String message, String loginId, boolean hasGithubAccess) {
         this.success = success;
         this.message = message;
-        this.ldapId = ldapId;
+        this.loginId = loginId;
         this.hasGithubAccess = hasGithubAccess;
     }
 
@@ -22,8 +22,8 @@ public class AuthResponse {
         return message;
     }
 
-    public String getLdapId() {
-        return ldapId;
+    public String getLoginId() {
+        return loginId;
     }
 
     public boolean isHasGithubAccess() {

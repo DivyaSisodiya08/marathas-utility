@@ -61,11 +61,16 @@ public class GithubOAuthService {
     private final RestClient restClient;
     private final GithubOAuthProperties properties;
     private final ObjectMapper objectMapper;
+    private final GithubPullRequestService githubPullRequestService;
 
-    public GithubOAuthService(RestClient.Builder restClientBuilder, GithubOAuthProperties properties) {
+    public GithubOAuthService(
+            RestClient.Builder restClientBuilder,
+            GithubOAuthProperties properties,
+            GithubPullRequestService githubPullRequestService) {
         this.restClient = restClientBuilder.build();
         this.properties = properties;
         this.objectMapper = new ObjectMapper();
+        this.githubPullRequestService = githubPullRequestService;
     }
 
     public List<JsonNode> fetchAllRepos() {
@@ -494,67 +499,11 @@ public class GithubOAuthService {
     }
 
     public Map<String, String> createPullRequest(String repoFullName, String branchName, String title, String body) {
-        return createPullRequest(repoFullName, "master", branchName, title, body);
+        return githubPullRequestService.createPullRequest(repoFullName, "master", branchName, title, body);
     }
 
     public Map<String, String> createPullRequest(String repoFullName, String baseBranch, String branchName, String title, String body) {
-        String[] ownerRepo = parseOwnerRepo(repoFullName);
-        String owner = ownerRepo[0];
-        String repo = ownerRepo[1];
-        String sanitizedBaseBranch = normalizeBranch(baseBranch, "master");
-
-        try {
-            JsonNode prResponse = restClient.post()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/pulls", owner, repo)
-                    .header("Authorization", "Bearer " + getToken())
-                    .header("Accept", "application/vnd.github+json")
-                    .body(Map.of(
-                            "title", title,
-                            "body", body,
-                            "head", branchName,
-                            "base", sanitizedBaseBranch
-                    ))
-                    .retrieve()
-                    .body(JsonNode.class);
-
-            if (prResponse == null || prResponse.path("html_url").isMissingNode()) {
-                throw new ResponseStatusException(NOT_FOUND, "PR creation response invalid");
-            }
-
-            Map<String, String> result = new LinkedHashMap<>();
-            result.put("prUrl", prResponse.path("html_url").asText());
-            result.put("prNumber", prResponse.path("number").asText());
-            result.put("baseBranch", sanitizedBaseBranch);
-            result.put("created", "true");
-            log.info("PR created: {}/{} PR#{}", owner, repo, result.get("prNumber"));
-            return result;
-
-        } catch (HttpClientErrorException.UnprocessableEntity e) {
-            String githubMessage = extractGithubErrorMessage(e.getResponseBodyAsString());
-            Map<String, String> existingPr = findExistingPullRequest(owner, repo, sanitizedBaseBranch, branchName);
-
-            if (existingPr != null && !existingPr.isEmpty()) {
-                existingPr.put("baseBranch", sanitizedBaseBranch);
-                existingPr.put("created", "false");
-                existingPr.put("existing", "true");
-                log.info("Existing PR reused: {}/{} PR#{}", owner, repo, existingPr.get("prNumber"));
-                return existingPr;
-            }
-
-            if (githubMessage.toLowerCase(Locale.ROOT).contains("no commits between")) {
-                throw new ResponseStatusException(
-                        BAD_REQUEST,
-                        "Failed to create PR: No commits between compare branch " + branchName
-                                + " and base branch " + sanitizedBaseBranch);
-            }
-
-            throw new ResponseStatusException(BAD_REQUEST, "Failed to create PR: " + githubMessage);
-
-        } catch (ResponseStatusException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ResponseStatusException(NOT_FOUND, "Failed to create PR: " + e.getMessage());
-        }
+        return githubPullRequestService.createPullRequest(repoFullName, baseBranch, branchName, title, body);
     }
 
     public Map<String, String> createUpgradePullRequest(Map<String, String> request) {

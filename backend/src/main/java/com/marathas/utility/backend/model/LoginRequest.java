@@ -5,15 +5,15 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 public class LoginRequest {
 
     @JsonAlias("username")
-    private String ldapId;
+    private String loginId;
     private String password;
 
-    public String getLdapId() {
-        return ldapId;
+    public String getLoginId() {
+        return loginId;
     }
 
-    public void setLdapId(String ldapId) {
-        this.ldapId = ldapId;
+    public void setLoginId(String loginId) {
+        this.loginId = loginId;
     }
 
     public String getPassword() {
@@ -24,7 +24,4 @@ public class LoginRequest {
         this.password = password;
     }
 
-    public String getLoginId() {
-        return ldapId;
-    }
 }

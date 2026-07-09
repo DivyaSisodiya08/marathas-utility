@@ -10,16 +10,16 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   const handleLogin = async (values) => {
-    const ldapId = values?.username?.trim()
+    const loginId = values?.username?.trim()
     const password = values?.password
 
-    if (!ldapId || !password) {
+    if (!loginId || !password) {
       message.error('User ID and password are required')
       return
     }
 
     try {
-      await loginRequest(ldapId, password)
+      await loginRequest(loginId, password)
 
       setIsAuthenticated(true)
       message.success('Login successful')

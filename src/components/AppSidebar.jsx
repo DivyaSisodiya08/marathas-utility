@@ -1,5 +1,6 @@
 import { Menu } from 'antd'
 import {
+  PullRequestOutlined,
   ApartmentOutlined,
   CalculatorOutlined,
   GithubOutlined,
@@ -9,6 +10,11 @@ import {
 } from '@ant-design/icons'
 
 const utilityMenuItems = [
+  {
+    key: '/pr-create',
+    icon: <PullRequestOutlined />,
+    label: 'Create PR',
+  },
   {
     key: '/spring-boot-upgrade',
     icon: <CalculatorOutlined />,

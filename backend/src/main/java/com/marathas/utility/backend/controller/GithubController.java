@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.marathas.utility.backend.model.CreatePullRequestRequest;
 import com.marathas.utility.backend.service.GithubOAuthService;
+import com.marathas.utility.backend.service.GithubPullRequestService;
 
 import jakarta.servlet.http.HttpSession;
 
@@ -22,9 +24,13 @@ public class GithubController {
     private static final String REPOS_CACHE_KEY = "github_repos_cache";
 
     private final GithubOAuthService githubOAuthService;
+    private final GithubPullRequestService githubPullRequestService;
 
-    public GithubController(GithubOAuthService githubOAuthService) {
+    public GithubController(
+            GithubOAuthService githubOAuthService,
+            GithubPullRequestService githubPullRequestService) {
         this.githubOAuthService = githubOAuthService;
+        this.githubPullRequestService = githubPullRequestService;
     }
 
     @GetMapping("/repos")
@@ -78,12 +84,18 @@ public class GithubController {
     }
 
     @PostMapping("/pr")
-    public Map<String, String> createPullRequest(
-            @RequestParam String repoFullName,
-            @RequestParam String branchName,
-            @RequestParam String title,
-            @RequestParam String body) {
-        return githubOAuthService.createPullRequest(repoFullName, branchName, title, body);
+    public Map<String, String> createPullRequest(@RequestBody CreatePullRequestRequest request) {
+        return githubPullRequestService.createPullRequest(
+                request.getRepoFullName(),
+                request.getBaseBranch(),
+                request.getCompareBranch(),
+                request.getTitle(),
+                request.getBody());
+    }
+
+    @PostMapping("/pr/create")
+    public Map<String, String> createPullRequestWithCreatePath(@RequestBody CreatePullRequestRequest request) {
+        return createPullRequest(request);
     }
 
     @PostMapping("/upgrade-pr")

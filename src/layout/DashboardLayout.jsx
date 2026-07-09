@@ -7,6 +7,7 @@ const { Header, Sider, Content, Footer } = Layout
 const { Title } = Typography
 
 const pageTitles = {
+  '/pr-create': 'Create Pull Request',
   '/repo-tree': 'Repo Dependency Tree',
   '/spring-boot-upgrade': 'Spring Boot Upgrade',
   '/snapshot-upgrade': 'Snapshot Upgrade',

@@ -67,3 +67,7 @@ From root:
 - `npm run dev`
 
 Frontend dev server proxies `/api/*` to backend at `http://localhost:8080`.
+
+## Copyright
+
+© 2026 Marathas Utility. All rights reserved.
