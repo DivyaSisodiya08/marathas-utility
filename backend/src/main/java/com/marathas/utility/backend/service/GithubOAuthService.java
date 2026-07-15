@@ -1,8 +1,12 @@
 package com.marathas.utility.backend.service;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -45,6 +49,10 @@ import com.marathas.utility.backend.config.GithubOAuthProperties;
 public class GithubOAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(GithubOAuthService.class);
+    private static final Path REPOS_CACHE_PATH = Path.of(
+            System.getProperty("user.home"),
+            ".marathas-utility",
+            "github-repos-cache.json");
 
     private record PomFile(String path, String sha, String content, String branch) {
 
@@ -125,6 +133,57 @@ public class GithubOAuthService {
         return allRepos;
     }
 
+    public List<JsonNode> readPersistedReposCache() {
+        if (!Files.exists(REPOS_CACHE_PATH)) {
+            return List.of();
+        }
+
+        try {
+            String raw = Files.readString(REPOS_CACHE_PATH, StandardCharsets.UTF_8);
+            if (raw.isBlank()) {
+                return List.of();
+            }
+
+            JsonNode root = objectMapper.readTree(raw);
+            if (root == null || !root.isArray() || root.isEmpty()) {
+                return List.of();
+            }
+
+            List<JsonNode> repos = new ArrayList<>();
+            for (JsonNode repo : root) {
+                repos.add(repo);
+            }
+            return repos;
+        } catch (Exception e) {
+            log.warn("Failed to read persisted repo cache {}: {}", REPOS_CACHE_PATH, e.getMessage());
+            return List.of();
+        }
+    }
+
+    public void persistReposCache(List<JsonNode> repos) {
+        if (repos == null || repos.isEmpty()) {
+            return;
+        }
+
+        try {
+            Path parent = REPOS_CACHE_PATH.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+
+            String raw = objectMapper.writeValueAsString(repos);
+            Files.writeString(
+                    REPOS_CACHE_PATH,
+                    raw,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE);
+        } catch (IOException e) {
+            log.warn("Failed to persist repo cache {}: {}", REPOS_CACHE_PATH, e.getMessage());
+        }
+    }
+
     public List<String> fetchRepoBranches(String repoFullName) {
         String[] ownerRepo = parseOwnerRepo(repoFullName);
         String owner = ownerRepo[0];
@@ -169,163 +228,6 @@ public class GithubOAuthService {
             throw e;
         } catch (Exception e) {
             throw new ResponseStatusException(NOT_FOUND, "Failed to fetch branches: " + e.getMessage());
-        }
-    }
-
-    public List<Map<String, String>> fetchActionRuns(String repoFullName, String branch) {
-        String[] ownerRepo = parseOwnerRepo(repoFullName);
-        String owner = ownerRepo[0];
-        String repo = ownerRepo[1];
-        String sanitizedBranch = blankToNull(branch);
-        int perPage = 20;
-        int maxRuns = 20;
-
-        try {
-            List<Map<String, String>> runs = new ArrayList<>();
-            int page = 1;
-
-            while (true) {
-                JsonNode response;
-                if (sanitizedBranch == null) {
-                    response = restClient.get()
-                            .uri("https://api.github.com/repos/{owner}/{repo}/actions/runs?per_page={perPage}&page={page}",
-                                    owner, repo, perPage, page)
-                            .header("Authorization", "Bearer " + getToken())
-                            .header("Accept", "application/vnd.github+json")
-                            .retrieve()
-                            .body(JsonNode.class);
-                } else {
-                    response = restClient.get()
-                            .uri("https://api.github.com/repos/{owner}/{repo}/actions/runs?per_page={perPage}&page={page}&branch={branch}",
-                                    owner, repo, perPage, page, sanitizedBranch)
-                            .header("Authorization", "Bearer " + getToken())
-                            .header("Accept", "application/vnd.github+json")
-                            .retrieve()
-                            .body(JsonNode.class);
-                }
-
-                if (response == null || !response.path("workflow_runs").isArray()) {
-                    break;
-                }
-
-                JsonNode workflowRuns = response.path("workflow_runs");
-                if (workflowRuns.isEmpty()) {
-                    break;
-                }
-
-                for (JsonNode run : workflowRuns) {
-                    Map<String, String> item = new LinkedHashMap<>();
-                    item.put("id", run.path("id").asText(""));
-                    item.put("runNumber", run.path("run_number").asText(""));
-                    item.put("name", run.path("name").asText(""));
-                    item.put("displayTitle", run.path("display_title").asText(""));
-                    item.put("event", run.path("event").asText(""));
-                    item.put("status", run.path("status").asText(""));
-                    item.put("conclusion", run.path("conclusion").asText(""));
-                    item.put("headBranch", run.path("head_branch").asText(""));
-                    item.put("createdAt", run.path("created_at").asText(""));
-                    item.put("updatedAt", run.path("updated_at").asText(""));
-                    item.put("htmlUrl", run.path("html_url").asText(""));
-                    runs.add(item);
-
-                    if (runs.size() >= maxRuns) {
-                        return runs;
-                    }
-                }
-
-                if (workflowRuns.size() < perPage) {
-                    break;
-                }
-                page++;
-            }
-
-            return runs;
-        } catch (ResponseStatusException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ResponseStatusException(NOT_FOUND, "Failed to fetch workflow runs: " + e.getMessage());
-        }
-    }
-
-    public Map<String, String> triggerActionRun(String repoFullName, String branch, String workflowType) {
-        String[] ownerRepo = parseOwnerRepo(repoFullName);
-        String owner = ownerRepo[0];
-        String repo = ownerRepo[1];
-        String sanitizedBranch = requireValue(branch, "branch");
-        String sanitizedWorkflowType = requireValue(workflowType, "workflowType").toLowerCase();
-
-        if (!"docker".equals(sanitizedWorkflowType)
-                && !"coverity".equals(sanitizedWorkflowType)
-                && !"blackduck".equals(sanitizedWorkflowType)
-                && !"twistlock".equals(sanitizedWorkflowType)) {
-            throw new ResponseStatusException(BAD_REQUEST, "workflowType must be one of: docker, coverity, bdh, twistlock");
-        }
-
-        try {
-            JsonNode workflowsResponse = restClient.get()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/actions/workflows?per_page=100", owner, repo)
-                    .header("Authorization", "Bearer " + getToken())
-                    .header("Accept", "application/vnd.github+json")
-                    .retrieve()
-                    .body(JsonNode.class);
-
-            if (workflowsResponse == null || !workflowsResponse.path("workflows").isArray()) {
-                throw new ResponseStatusException(NOT_FOUND, "No workflows found in repository");
-            }
-
-            String workflowId = null;
-            String workflowName = null;
-            for (JsonNode workflow : workflowsResponse.path("workflows")) {
-                String name = workflow.path("name").asText("");
-                String path = workflow.path("path").asText("");
-                String text = (name + " " + path).toLowerCase();
-
-                boolean isMatch;
-                if ("docker".equals(sanitizedWorkflowType)) {
-                    isMatch = text.contains("docker") || text.contains("image-build") || text.contains("image build");
-                } else if ("coverity".equals(sanitizedWorkflowType)) {
-                    isMatch = text.contains("coverity");
-                } else if ("twistlock".equals(sanitizedWorkflowType)) {
-                    isMatch = text.contains("twistlock");
-                } else {
-                    isMatch = text.contains("blackduck");
-                }
-
-                if (isMatch) {
-                    workflowId = workflow.path("id").asText("");
-                    workflowName = name;
-                    break;
-                }
-            }
-
-            if (workflowId == null || workflowId.isBlank()) {
-                throw new ResponseStatusException(
-                        NOT_FOUND,
-                        "No matching workflow found for type " + sanitizedWorkflowType
-                                + ". Ensure workflow name or file path contains that keyword."
-                );
-            }
-
-            restClient.post()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflowId}/dispatches",
-                            owner, repo, workflowId)
-                    .header("Authorization", "Bearer " + getToken())
-                    .header("Accept", "application/vnd.github+json")
-                    .body(Map.of("ref", sanitizedBranch))
-                    .retrieve()
-                    .toBodilessEntity();
-
-            Map<String, String> result = new LinkedHashMap<>();
-            result.put("repoFullName", repoFullName);
-            result.put("branch", sanitizedBranch);
-            result.put("workflowType", sanitizedWorkflowType);
-            result.put("workflowName", workflowName == null ? "" : workflowName);
-            result.put("status", "queued");
-            return result;
-        } catch (ResponseStatusException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ResponseStatusException(NOT_FOUND, "Failed to trigger workflow run: " + e.getMessage());
         }
     }
 
@@ -512,11 +414,14 @@ public class GithubOAuthService {
         String baseBranch = normalizeBranch(request.get("baseBranch"), sourceBranch);
         String branchName = requireValue(request.get("branchName"), "branchName");
         String targetSpringBootVersion = blankToNull(request.get("targetSpringBootVersion"));
-        String targetSnapshotVersion = blankToNull(request.get("targetSnapshotVersion"));
         String jiraTicket = blankToNull(request.get("jiraTicket"));
 
-        if (targetSpringBootVersion == null && targetSnapshotVersion == null) {
-            throw new ResponseStatusException(BAD_REQUEST, "At least one target version is required");
+        if (targetSpringBootVersion == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "targetSpringBootVersion is required");
+        }
+
+        if (blankToNull(request.get("targetSnapshotVersion")) != null) {
+            throw new ResponseStatusException(BAD_REQUEST, "Snapshot upgrade is not supported in Spring Boot upgrade flow");
         }
 
         String[] ownerRepo = parseOwnerRepo(repoFullName);
@@ -532,14 +437,14 @@ public class GithubOAuthService {
             featurePomFile = fetchPomFileWithFallback(owner, repo, branchName);
         }
 
-        String updatedPom = updatePomVersions(featurePomFile.content(), targetSpringBootVersion, targetSnapshotVersion);
+        String updatedPom = updatePomVersions(featurePomFile.content(), targetSpringBootVersion, null);
         if (updatedPom.equals(featurePomFile.content())) {
             throw new ResponseStatusException(
                 BAD_REQUEST,
-                "No version change detected in pom.xml for branch " + branchName + ". Update target versions first.");
+                "No Spring Boot version change detected in pom.xml for branch " + branchName + ". Update targetSpringBootVersion first.");
         }
 
-        String commitMessage = buildCommitMessage(targetSpringBootVersion, targetSnapshotVersion, jiraTicket);
+        String commitMessage = buildCommitMessage(targetSpringBootVersion, jiraTicket);
         JsonNode commitResponse = updatePomFile(
             owner,
             repo,
@@ -549,11 +454,10 @@ public class GithubOAuthService {
             updatedPom,
             commitMessage);
 
-        String prTitle = buildPrTitle(repo, targetSpringBootVersion, targetSnapshotVersion, jiraTicket);
+        String prTitle = buildPrTitle(repo, targetSpringBootVersion, jiraTicket);
         String prBody = buildPrBody(
             currentVersions,
             targetSpringBootVersion,
-            targetSnapshotVersion,
             jiraTicket,
             featurePomFile.path(),
             sourceBranch);
@@ -569,6 +473,38 @@ public class GithubOAuthService {
         result.put("prNumber", prResult.getOrDefault("prNumber", ""));
         result.put("prCreated", prResult.getOrDefault("created", ""));
         result.put("prExisting", prResult.getOrDefault("existing", ""));
+        return result;
+    }
+
+    public Map<String, Object> previewUpgradePullRequest(Map<String, String> request) {
+        String repoFullName = requireValue(request.get("repoFullName"), "repoFullName");
+        String sourceBranch = normalizeBranch(request.get("sourceBranch"), "master");
+        String targetSpringBootVersion = requireValue(request.get("targetSpringBootVersion"), "targetSpringBootVersion");
+
+        String[] ownerRepo = parseOwnerRepo(repoFullName);
+        String owner = ownerRepo[0];
+        String repo = ownerRepo[1];
+
+        List<PomFile> pomFiles = fetchAllPomFiles(owner, repo, sourceBranch);
+        if (pomFiles.isEmpty()) {
+            throw new ResponseStatusException(NOT_FOUND, "No pom.xml files found in repository");
+        }
+
+        List<Map<String, String>> pomSpringBootFindings = new ArrayList<>();
+        for (PomFile pomFile : pomFiles) {
+            String updatedPom = updatePomVersions(pomFile.content(), targetSpringBootVersion, null);
+            if (updatedPom.equals(pomFile.content())) {
+                continue;
+            }
+            pomSpringBootFindings.addAll(buildPomSpringBootFindings(pomFile.path(), pomFile.content(), targetSpringBootVersion));
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("sourceBranch", sourceBranch);
+        result.put("targetSpringBootVersion", targetSpringBootVersion);
+        result.put("pomFilesScanned", pomFiles.size());
+        result.put("pomSpringBootFindings", pomSpringBootFindings);
+        result.put("totalSpringBootFindings", pomSpringBootFindings.size());
         return result;
     }
 
@@ -1291,6 +1227,102 @@ public class GithubOAuthService {
         return findings;
     }
 
+    private List<Map<String, String>> buildPomSpringBootFindings(String filePath, String pomXml, String targetSpringBootVersion) {
+        List<Map<String, String>> findings = new ArrayList<>();
+
+        try {
+            Document doc = DocumentBuilderFactory.newInstance()
+                    .newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(pomXml.getBytes(StandardCharsets.UTF_8)));
+            doc.getDocumentElement().normalize();
+
+            NodeList parents = doc.getElementsByTagName("parent");
+            if (parents.getLength() > 0) {
+                Element parent = (Element) parents.item(0);
+                String groupId = getDirectChildText(parent, "groupId");
+                String artifactId = getDirectChildText(parent, "artifactId");
+                String parentVersion = getDirectChildText(parent, "version");
+                String parentCoordinate = coalesceCoordinate(groupId, artifactId);
+
+                if (!parentVersion.isBlank()) {
+                    String propertyName = extractPropertyName(parentVersion);
+                    if (propertyName != null) {
+                        String currentPropertyValue = readPropertyValue(doc, propertyName);
+                        if (!currentPropertyValue.isBlank() && !currentPropertyValue.equals(targetSpringBootVersion)) {
+                            Map<String, String> row = new LinkedHashMap<>();
+                            row.put("filePath", filePath);
+                            row.put("line", String.valueOf(lineNumberForIndex(pomXml, pomXml.indexOf(currentPropertyValue))));
+                            row.put("field", "parent:" + parentCoordinate + " (property:" + propertyName + ")");
+                            row.put("currentValue", currentPropertyValue);
+                            row.put("newValue", targetSpringBootVersion);
+                            findings.add(row);
+                        }
+                    } else if (!parentVersion.equals(targetSpringBootVersion)) {
+                        Map<String, String> row = new LinkedHashMap<>();
+                        row.put("filePath", filePath);
+                        row.put("line", String.valueOf(lineNumberForIndex(pomXml, pomXml.indexOf(parentVersion))));
+                        row.put("field", "parent:" + parentCoordinate);
+                        row.put("currentValue", parentVersion);
+                        row.put("newValue", targetSpringBootVersion);
+                        findings.add(row);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            String current = findSpringBootParentVersionFallback(pomXml);
+            if (current != null && !current.equals(targetSpringBootVersion)) {
+                Map<String, String> row = new LinkedHashMap<>();
+                row.put("filePath", filePath);
+                row.put("line", String.valueOf(lineNumberForIndex(pomXml, pomXml.indexOf(current))));
+                row.put("field", "spring-boot");
+                row.put("currentValue", current);
+                row.put("newValue", targetSpringBootVersion);
+                findings.add(row);
+            }
+        }
+
+        return findings;
+    }
+
+    private String readPropertyValue(Document doc, String propertyName) {
+        NodeList propertiesNodes = doc.getElementsByTagName("properties");
+        if (propertiesNodes.getLength() == 0) {
+            return "";
+        }
+
+        NodeList children = propertiesNodes.item(0).getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (node.getNodeType() != Node.ELEMENT_NODE) {
+                continue;
+            }
+            if (propertyName.equals(node.getNodeName())) {
+                return node.getTextContent().trim();
+            }
+        }
+
+        return "";
+    }
+
+    private String findSpringBootParentVersionFallback(String pomXml) {
+        Pattern parentPattern = Pattern.compile("(?s)<parent>(.*?)</parent>");
+        Matcher parentMatcher = parentPattern.matcher(pomXml);
+        while (parentMatcher.find()) {
+            String parentBlock = parentMatcher.group(1);
+            if (!parentBlock.contains("springframework.boot")) {
+                continue;
+            }
+
+            Pattern versionPattern = Pattern.compile("(?s)<version>(.*?)</version>");
+            Matcher versionMatcher = versionPattern.matcher(parentBlock);
+            if (versionMatcher.find()) {
+                return versionMatcher.group(1).trim();
+            }
+        }
+
+        return null;
+    }
+
     private Map<String, String> buildSnapshotFinding(String filePath, String fullText, String field, String currentValue) {
         Map<String, String> row = new LinkedHashMap<>();
         row.put("filePath", filePath);
@@ -1784,7 +1816,7 @@ public class GithubOAuthService {
         }
     }
 
-    private String buildCommitMessage(String targetSpringBootVersion, String targetSnapshotVersion, String jiraTicket) {
+    private String buildCommitMessage(String targetSpringBootVersion, String jiraTicket) {
         StringBuilder message = new StringBuilder();
         if (jiraTicket != null) {
             message.append(jiraTicket).append(": ");
@@ -1793,13 +1825,10 @@ public class GithubOAuthService {
         if (targetSpringBootVersion != null) {
             message.append(" to ").append(targetSpringBootVersion);
         }
-        if (targetSnapshotVersion != null) {
-            message.append(" and snapshot ").append(targetSnapshotVersion);
-        }
         return message.toString();
     }
 
-    private String buildPrTitle(String repo, String targetSpringBootVersion, String targetSnapshotVersion, String jiraTicket) {
+    private String buildPrTitle(String repo, String targetSpringBootVersion, String jiraTicket) {
         StringBuilder title = new StringBuilder();
         if (jiraTicket != null) {
             title.append(jiraTicket).append(": ");
@@ -1808,16 +1837,12 @@ public class GithubOAuthService {
         if (targetSpringBootVersion != null) {
             title.append(" to Spring Boot ").append(targetSpringBootVersion);
         }
-        if (targetSnapshotVersion != null) {
-            title.append(" / ").append(targetSnapshotVersion);
-        }
         return title.toString();
     }
 
     private String buildPrBody(
             Map<String, String> currentVersions,
             String targetSpringBootVersion,
-            String targetSnapshotVersion,
             String jiraTicket,
             String pomPath,
             String sourceBranch) {
@@ -1831,13 +1856,6 @@ public class GithubOAuthService {
                     .append(currentVersions.getOrDefault("springBootVersion", "N/A"))
                     .append(" -> ")
                     .append(targetSpringBootVersion)
-                    .append("\n");
-        }
-        if (targetSnapshotVersion != null) {
-            body.append("- Snapshot: ")
-                    .append(currentVersions.getOrDefault("snapshotVersion", "N/A"))
-                    .append(" -> ")
-                    .append(targetSnapshotVersion)
                     .append("\n");
         }
         if (jiraTicket != null) {

@@ -53,7 +53,7 @@ function GithubAccessPage() {
             Go to GitHub
           </Button>
           <Button type="primary" icon={<GithubOutlined />} onClick={handleFetchRepos} loading={isFetching}>
-            Fetch Repositories
+            Fetch Repo
           </Button>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer">
             {GITHUB_URL}

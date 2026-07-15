@@ -113,6 +113,63 @@ export async function createUpgradePullRequest(request) {
   return payload
 }
 
+export async function previewUpgradePullRequest(request) {
+  const response = await fetch('/api/github/upgrade-pr/preview', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Failed to preview Spring Boot upgrade')
+  }
+
+  return payload
+}
+
+export async function fetchSnapshotUpgradePreview(request) {
+  const response = await fetch('/api/github/snapshot-upgrade/preview', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Failed to preview snapshot upgrade')
+  }
+
+  return payload
+}
+
+export async function applySnapshotUpgrade(request) {
+  const response = await fetch('/api/github/snapshot-upgrade', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Failed to apply snapshot upgrade')
+  }
+
+  return payload
+}
+
 export async function createPullRequest(request) {
   const response = await fetch('/api/github/pr', {
     method: 'POST',
@@ -170,13 +227,17 @@ export async function fetchReleaseCutPreview(request) {
   return payload
 }
 
-export async function fetchGithubActionRuns(repoFullName, branch = '') {
+export async function fetchGithubActionRuns(repoFullName, branch = '', workflowType = '') {
   const query = new URLSearchParams({
     repoFullName,
   })
 
   if (branch && branch.trim()) {
     query.set('branch', branch.trim())
+  }
+
+  if (workflowType && workflowType.trim()) {
+    query.set('workflowType', workflowType.trim())
   }
 
   const response = await fetch(`/api/github/actions/runs?${query.toString()}`, {

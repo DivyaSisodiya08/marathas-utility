@@ -296,7 +296,7 @@ function RepoTreePage() {
     const childRepo = repos.find((repo) => String(repo.id) === String(childRepoId))
 
     if (!parentRepo || !childRepo) {
-      message.warning('Selected repositories are not available. Refresh repositories once.')
+      message.warning('Selected repositories are not available. Open GitHub Access and Fetch Repo once.')
       return
     }
 
@@ -541,15 +541,6 @@ function RepoTreePage() {
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card type="inner" title="Tree Name + Parent Child Mapping">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Button
-              icon={<GithubOutlined />}
-              onClick={fetchAllGithubRepos}
-              loading={isFetchingRepos}
-              type="primary"
-            >
-              {repos.length > 0 ? 'Refresh Repositories' : 'Fetch Repositories'}
-            </Button>
-
             <Select
               showSearch
               value={activeTreeName}
@@ -568,7 +559,7 @@ function RepoTreePage() {
             <Select
               showSearch
               allowClear
-              placeholder={repos.length > 0 ? 'Search parent repository' : 'Fetch repositories first'}
+              placeholder={repos.length > 0 ? 'Search parent repository' : 'Open GitHub Access and Fetch Repo first'}
               optionFilterProp="label"
               value={parentRepoId}
               onChange={(value) => setParentRepoId(value || undefined)}
@@ -583,7 +574,7 @@ function RepoTreePage() {
             <Select
               showSearch
               allowClear
-              placeholder={repos.length > 0 ? 'Search child repository' : 'Fetch repositories first'}
+              placeholder={repos.length > 0 ? 'Search child repository' : 'Open GitHub Access and Fetch Repo first'}
               optionFilterProp="label"
               value={childRepoId}
               onChange={(value) => setChildRepoId(value || undefined)}
@@ -626,7 +617,7 @@ function RepoTreePage() {
                 label: repo.full_name,
               }))}
               style={{ width: '100%' }}
-              placeholder={repos.length > 0 ? 'Search child repository for nested node' : 'Fetch repositories first'}
+              placeholder={repos.length > 0 ? 'Search child repository for nested node' : 'Open GitHub Access and Fetch Repo first'}
             />
 
             <Button type="primary" onClick={addCustomChildNode}>

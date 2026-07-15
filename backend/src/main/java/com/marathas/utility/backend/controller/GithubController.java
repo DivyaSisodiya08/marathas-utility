@@ -12,8 +12,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.marathas.utility.backend.model.CreatePullRequestRequest;
+import com.marathas.utility.backend.service.GithubBuildStatusService;
 import com.marathas.utility.backend.service.GithubOAuthService;
 import com.marathas.utility.backend.service.GithubPullRequestService;
+import com.marathas.utility.backend.service.SnapshotUpgradeService;
 
 import jakarta.servlet.http.HttpSession;
 
@@ -24,13 +26,19 @@ public class GithubController {
     private static final String REPOS_CACHE_KEY = "github_repos_cache";
 
     private final GithubOAuthService githubOAuthService;
+    private final GithubBuildStatusService githubBuildStatusService;
     private final GithubPullRequestService githubPullRequestService;
+    private final SnapshotUpgradeService snapshotUpgradeService;
 
     public GithubController(
             GithubOAuthService githubOAuthService,
-            GithubPullRequestService githubPullRequestService) {
+            GithubBuildStatusService githubBuildStatusService,
+            GithubPullRequestService githubPullRequestService,
+            SnapshotUpgradeService snapshotUpgradeService) {
         this.githubOAuthService = githubOAuthService;
+        this.githubBuildStatusService = githubBuildStatusService;
         this.githubPullRequestService = githubPullRequestService;
+        this.snapshotUpgradeService = snapshotUpgradeService;
     }
 
     @GetMapping("/repos")
@@ -44,8 +52,17 @@ public class GithubController {
             return repos;
         }
 
+        if (!refresh) {
+            List<JsonNode> persistedRepos = githubOAuthService.readPersistedReposCache();
+            if (!persistedRepos.isEmpty()) {
+                session.setAttribute(REPOS_CACHE_KEY, persistedRepos);
+                return persistedRepos;
+            }
+        }
+
         List<JsonNode> repos = githubOAuthService.fetchAllRepos();
         session.setAttribute(REPOS_CACHE_KEY, repos);
+        githubOAuthService.persistReposCache(repos);
         return repos;
     }
 
@@ -64,8 +81,9 @@ public class GithubController {
     @GetMapping("/actions/runs")
     public List<Map<String, String>> getActionRuns(
             @RequestParam String repoFullName,
-            @RequestParam(required = false) String branch) {
-        return githubOAuthService.fetchActionRuns(repoFullName, branch);
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) String workflowType) {
+        return githubBuildStatusService.fetchActionRuns(repoFullName, branch, workflowType);
     }
 
     @PostMapping("/actions/dispatch")
@@ -73,7 +91,7 @@ public class GithubController {
             @RequestParam String repoFullName,
             @RequestParam String branch,
             @RequestParam String workflowType) {
-        return githubOAuthService.triggerActionRun(repoFullName, branch, workflowType);
+        return githubBuildStatusService.triggerActionRun(repoFullName, branch, workflowType);
     }
 
     @PostMapping("/branch")
@@ -103,6 +121,11 @@ public class GithubController {
         return githubOAuthService.createUpgradePullRequest(request);
     }
 
+    @PostMapping("/upgrade-pr/preview")
+    public Map<String, Object> previewUpgradePullRequest(@RequestBody Map<String, String> request) {
+        return githubOAuthService.previewUpgradePullRequest(request);
+    }
+
     @PostMapping("/release-cut")
     public Map<String, String> createReleaseCut(@RequestBody Map<String, String> request) {
         return githubOAuthService.createReleaseCut(request);
@@ -111,5 +134,15 @@ public class GithubController {
     @PostMapping("/release-cut/preview")
     public Map<String, Object> previewReleaseCut(@RequestBody Map<String, String> request) {
         return githubOAuthService.previewReleaseCut(request);
+    }
+
+    @PostMapping("/snapshot-upgrade/preview")
+    public Map<String, Object> previewSnapshotUpgrade(@RequestBody Map<String, String> request) {
+        return snapshotUpgradeService.previewSnapshotUpgrade(request);
+    }
+
+    @PostMapping("/snapshot-upgrade")
+    public Map<String, String> applySnapshotUpgrade(@RequestBody Map<String, String> request) {
+        return snapshotUpgradeService.applySnapshotUpgrade(request);
     }
 }

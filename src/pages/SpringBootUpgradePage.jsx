@@ -1,10 +1,27 @@
-import { Card, Input, Space, Typography, Button, message, Divider, Spin, Select } from 'antd'
+import { Card, Input, Space, Typography, Button, message, Divider, Spin, Select, Checkbox, Table } from 'antd'
 import { useEffect, useState } from 'react'
 import { GithubOutlined, BranchesOutlined } from '@ant-design/icons'
-import { createUpgradePullRequest, fetchGithubRepos, fetchPomInfo, fetchRepoBranches } from '../services/githubService'
+import { createUpgradePullRequest, fetchGithubRepos, fetchPomInfo, fetchRepoBranches, previewUpgradePullRequest } from '../services/githubService'
 
 const { Text } = Typography
 const SPRING_UPGRADE_STORAGE_KEY = 'spring_boot_upgrade_state_v1'
+
+function toVersionKey(field) {
+  const value = String(field || '')
+  if (value.startsWith('parent:')) {
+    return value.replace('parent:', 'parent ')
+  }
+  if (value.startsWith('property:')) {
+    return value.replace('property:', 'property ')
+  }
+  if (value.startsWith('dependency:')) {
+    return value.replace('dependency:', 'dependency ')
+  }
+  if (value.startsWith('plugin:')) {
+    return value.replace('plugin:', 'plugin ')
+  }
+  return value
+}
 
 function SpringBootUpgradePage() {
   const [repos, setRepos] = useState([])
@@ -22,7 +39,14 @@ function SpringBootUpgradePage() {
         if (raw) {
           const parsed = JSON.parse(raw)
           if (Array.isArray(parsed.plans) && isMounted) {
-            setPlans(parsed.plans)
+            setPlans(parsed.plans.map((plan) => ({
+              ...plan,
+              branchMode: plan?.branchMode || 'new',
+              existingBranch: plan?.existingBranch || plan?.branch || 'master',
+              loadingPreview: plan?.loadingPreview || false,
+              preview: plan?.preview || null,
+              confirmPreview: plan?.confirmPreview || false,
+            })))
           }
         }
       } catch {
@@ -97,11 +121,15 @@ function SpringBootUpgradePage() {
         loadingBranches: true,
         pomInfo: null,
         loadingPom: false,
+        loadingPreview: false,
         creatingPr: false,
         targetVersion: '',
-        snapshotVersion: '',
+        existingBranch: 'master',
+        branchMode: 'new',
         jiraTicket: '',
         branchName: '',
+        preview: null,
+        confirmPreview: false,
         prUrl: '',
         prNumber: '',
       },
@@ -138,6 +166,7 @@ function SpringBootUpgradePage() {
       updatePlan(repo.id, {
         branches,
         branch: defaultBranch,
+        existingBranch: defaultBranch,
         loadingBranches: false,
       })
     } catch (error) {
@@ -160,12 +189,12 @@ function SpringBootUpgradePage() {
     try {
       updatePlan(plan.repo.id, { loadingPom: true })
       const info = await fetchPomInfo(plan.repo.full_name, plan.branch)
-      const resolvedSnapshot = info.snapshotVersion || info.projectVersion || ''
       updatePlan(plan.repo.id, {
         pomInfo: info,
         targetVersion: info.springBootVersion || '',
-        snapshotVersion: resolvedSnapshot,
-        branchName: buildBranchName(plan.repo.name, plan.jiraTicket, info.springBootVersion, resolvedSnapshot),
+        branchName: buildBranchName(plan.repo.name, plan.jiraTicket, info.springBootVersion),
+        preview: null,
+        confirmPreview: false,
         prUrl: '',
         prNumber: '',
       })
@@ -182,11 +211,10 @@ function SpringBootUpgradePage() {
     }
   }
 
-  const buildBranchName = (repoName, jiraTicket, targetVersion, snapshotVersion) => {
+  const buildBranchName = (repoName, jiraTicket, targetVersion) => {
     const jiraPart = `feature/${jiraTicket ? jiraTicket.toLowerCase() : 'upgrade'}`
     const springPart = targetVersion ? `sb-${targetVersion}` : 'sb'
-    const snapshotPart = snapshotVersion ? `snap-${snapshotVersion}` : 'snap'
-    return `${jiraPart}/${springPart}-${snapshotPart}`
+    return `${jiraPart}/${repoName}-${springPart}`
       .toLowerCase()
       .replace(/[^a-z0-9/_-]+/g, '-')
       .replace(/-+/g, '-')
@@ -199,38 +227,99 @@ function SpringBootUpgradePage() {
       return
     }
 
-    if (!plan.branchName) {
+    if (!plan.branchMode) {
+      message.warning(`Select branch option (New or Existing) for ${plan.repo.name}`)
+      return
+    }
+
+    if (plan.branchMode === 'new' && !plan.branchName) {
       message.warning(`Branch name is required for ${plan.repo.name}`)
       return
     }
 
-    if (!plan.targetVersion && !plan.snapshotVersion) {
-      message.warning(`Provide at least one target version for ${plan.repo.name}`)
+    if (plan.branchMode === 'existing' && !plan.existingBranch) {
+      message.warning(`Select existing branch for ${plan.repo.name}`)
+      return
+    }
+
+    if (!plan.targetVersion) {
+      message.warning(`Provide target Spring Boot version for ${plan.repo.name}`)
+      return
+    }
+
+    if (!plan.preview) {
+      message.warning(`Generate preview first for ${plan.repo.name}`)
+      return
+    }
+
+    if (!plan.confirmPreview) {
+      message.warning(`Confirm preview changes before creating PR for ${plan.repo.name}`)
       return
     }
 
     try {
       updatePlan(plan.repo.id, { creatingPr: true })
+      const targetBranchName = plan.branchMode === 'existing' ? plan.existingBranch : plan.branchName
       const result = await createUpgradePullRequest({
         repoFullName: plan.repo.full_name,
         sourceBranch: plan.branch,
         baseBranch: plan.branch,
-        branchName: plan.branchName,
+        branchName: targetBranchName,
         targetSpringBootVersion: plan.targetVersion,
-        targetSnapshotVersion: plan.snapshotVersion,
-        jiraTicket: plan.jiraTicket,
+        jiraTicket: plan.branchMode === 'new' ? plan.jiraTicket : '',
       })
 
       updatePlan(plan.repo.id, {
         creatingPr: false,
         prUrl: result.prUrl || '',
         prNumber: result.prNumber || '',
-        branchName: result.branchName || plan.branchName,
+        branchName: result.branchName || targetBranchName,
+        existingBranch: result.branchName || plan.existingBranch,
       })
       message.success(`Created PR for ${plan.repo.name}`)
     } catch (error) {
       updatePlan(plan.repo.id, { creatingPr: false })
       message.error(error.message || `Failed to create PR for ${plan.repo.name}`)
+    }
+  }
+
+  const handlePreviewChanges = async (plan) => {
+    if (!plan.pomInfo) {
+      message.warning(`Read pom.xml first for ${plan.repo.name}`)
+      return
+    }
+
+    if (!plan.targetVersion) {
+      message.warning(`Provide target Spring Boot version for ${plan.repo.name}`)
+      return
+    }
+
+    try {
+      updatePlan(plan.repo.id, {
+        loadingPreview: true,
+        preview: null,
+        confirmPreview: false,
+      })
+
+      const preview = await previewUpgradePullRequest({
+        repoFullName: plan.repo.full_name,
+        sourceBranch: plan.branch,
+        targetSpringBootVersion: plan.targetVersion,
+      })
+
+      updatePlan(plan.repo.id, {
+        loadingPreview: false,
+        preview,
+        confirmPreview: false,
+      })
+      message.success(`Preview generated for ${plan.repo.name}`)
+    } catch (error) {
+      updatePlan(plan.repo.id, {
+        loadingPreview: false,
+        preview: null,
+        confirmPreview: false,
+      })
+      message.error(error.message || `Failed to generate preview for ${plan.repo.name}`)
     }
   }
 
@@ -247,7 +336,7 @@ function SpringBootUpgradePage() {
             <Select
               showSearch
               allowClear
-              placeholder={repos.length > 0 ? 'Select repository' : 'Fetch repositories first'}
+              placeholder={repos.length > 0 ? 'Select repository' : 'Open GitHub Access and Fetch Repo first'}
               optionFilterProp="label"
               value={selectedRepoId}
               onChange={handleRepoDropdownChange}
@@ -258,15 +347,6 @@ function SpringBootUpgradePage() {
               style={{ width: '100%' }}
               disabled={repos.length === 0}
             />
-
-            <Button
-              type="primary"
-              icon={<GithubOutlined />}
-              onClick={loadRepositories}
-              loading={loadingRepos}
-            >
-              {repos.length > 0 ? 'Refresh Repositories' : 'Fetch Repositories'}
-            </Button>
 
             {plans.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#f0f5ff', borderRadius: '6px' }}>
@@ -349,85 +429,163 @@ function SpringBootUpgradePage() {
                             <Text strong style={{ display: 'block', marginBottom: 4 }}>Target Spring Boot Version</Text>
                             <Input
                               value={plan.targetVersion}
-                              onChange={(e) => updatePlan(plan.repo.id, { targetVersion: e.target.value })}
+                              onChange={(e) => updatePlan(plan.repo.id, {
+                                targetVersion: e.target.value,
+                                preview: null,
+                                confirmPreview: false,
+                              })}
                               placeholder="e.g. 3.3.2"
                               style={{ width: '100%' }}
                             />
                           </div>
                         </div>
 
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))',
-                            gap: 16,
-                            width: '100%',
-                          }}
-                        >
-                          <div>
-                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Current Snapshot Version</Text>
-                            <Input
-                              value={plan.pomInfo.snapshotVersion || plan.pomInfo.projectVersion || 'Not found'}
-                              readOnly
-                              style={{ width: '100%', background: '#fafafa' }}
-                            />
-                          </div>
-
-                          <div>
-                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Target Snapshot Version</Text>
-                            <Input
-                              value={plan.snapshotVersion}
-                              onChange={(e) => updatePlan(plan.repo.id, { snapshotVersion: e.target.value })}
-                              placeholder="e.g. 1.0.1-SNAPSHOT"
-                              style={{ width: '100%' }}
-                            />
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'minmax(220px, 1fr) minmax(320px, 2fr) auto',
-                            gap: 16,
-                            alignItems: 'end',
-                            width: '100%',
-                          }}
-                        >
-                          <div>
-                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Jira Ticket</Text>
-                            <Input
-                              value={plan.jiraTicket}
-                              onChange={(e) => {
-                                const jiraTicket = e.target.value
-                                updatePlan(plan.repo.id, {
-                                  jiraTicket,
-                                  branchName: buildBranchName(
-                                    plan.repo.name,
-                                    jiraTicket,
-                                    plan.targetVersion || plan.pomInfo.springBootVersion || '',
-                                    plan.snapshotVersion || plan.pomInfo.snapshotVersion || plan.pomInfo.projectVersion || ''
-                                  ),
-                                })
-                              }}
-                              placeholder="e.g. PROJ-1234"
-                              style={{ width: '100%' }}
-                            />
-                          </div>
-
-                          <div>
-                            <Text strong style={{ display: 'block', marginBottom: 4 }}>New Branch Name</Text>
-                            <Input
-                              value={plan.branchName}
-                              onChange={(e) => updatePlan(plan.repo.id, { branchName: e.target.value })}
-                              placeholder="e.g. proj-1234/repo-sb-3.3.3-snap-1.0.1-snapshot"
-                              style={{ width: '100%' }}
-                            />
-                          </div>
-
-                          <Button type="primary" onClick={() => handleCreatePr(plan)} loading={plan.creatingPr}>
-                            Create Branch & PR
+                        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                          <Button onClick={() => handlePreviewChanges(plan)} loading={plan.loadingPreview} style={{ width: 'fit-content' }}>
+                            Preview Spring Boot Changes
                           </Button>
+                        </Space>
+
+                        {plan.loadingPreview && <Spin tip="Building preview..." />}
+
+                        {plan.preview && (
+                          <Card size="small" title="Preview: Spring Boot Changes" style={{ background: '#fffbe6' }}>
+                            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                              <Text>
+                                Total findings: <Text strong>{plan.preview.totalSpringBootFindings ?? 0}</Text>
+                              </Text>
+
+                              <Table
+                                size="small"
+                                rowKey={(row, idx) => `${row.filePath || 'pom'}-${row.line || idx}-${idx}`}
+                                pagination={false}
+                                dataSource={Array.isArray(plan.preview.pomSpringBootFindings) ? plan.preview.pomSpringBootFindings : []}
+                                columns={[
+                                  { title: 'File', dataIndex: 'filePath', key: 'filePath' },
+                                  {
+                                    title: 'Version Key',
+                                    dataIndex: 'field',
+                                    key: 'field',
+                                    width: 260,
+                                    render: (value) => toVersionKey(value),
+                                  },
+                                  { title: 'Line', dataIndex: 'line', key: 'line', width: 90 },
+                                  { title: 'Current', dataIndex: 'currentValue', key: 'currentValue' },
+                                  { title: 'New', dataIndex: 'newValue', key: 'newValue' },
+                                ]}
+                                locale={{ emptyText: 'No Spring Boot changes detected' }}
+                              />
+                            </Space>
+                          </Card>
+                        )}
+
+                        {plan.preview && (
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <Checkbox
+                              checked={plan.confirmPreview}
+                              onChange={(e) => updatePlan(plan.repo.id, { confirmPreview: e.target.checked })}
+                            >
+                              I confirm previewed changes and want to create branch and PR
+                            </Checkbox>
+                          </Space>
+                        )}
+
+                        <div>
+                          <Space size={16}>
+                            <Checkbox
+                              checked={plan.branchMode === 'new'}
+                              onChange={(e) => updatePlan(plan.repo.id, {
+                                branchMode: e.target.checked ? 'new' : '',
+                                preview: null,
+                                confirmPreview: false,
+                              })}
+                            >
+                              New Branch
+                            </Checkbox>
+                            <Checkbox
+                              checked={plan.branchMode === 'existing'}
+                              onChange={(e) => updatePlan(plan.repo.id, {
+                                branchMode: e.target.checked ? 'existing' : '',
+                                preview: null,
+                                confirmPreview: false,
+                              })}
+                            >
+                              Existing Branch
+                            </Checkbox>
+                          </Space>
                         </div>
+
+                        {plan.branchMode === 'existing' ? (
+                          <div style={{ width: '100%' }}>
+                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Existing Branch</Text>
+                            <Select
+                              value={plan.existingBranch}
+                              onChange={(value) => updatePlan(plan.repo.id, {
+                                existingBranch: value,
+                                preview: null,
+                                confirmPreview: false,
+                              })}
+                              options={(plan.branches || []).map((name) => ({ value: name, label: name }))}
+                              loading={plan.loadingBranches}
+                              showSearch
+                              optionFilterProp="label"
+                              placeholder="Select existing branch"
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                        ) : null}
+
+                        {plan.branchMode === 'new' ? (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'minmax(220px, 1fr) minmax(320px, 2fr)',
+                              gap: 16,
+                              alignItems: 'end',
+                              width: '100%',
+                            }}
+                          >
+                            <div>
+                              <Text strong style={{ display: 'block', marginBottom: 4 }}>Jira Ticket</Text>
+                              <Input
+                                value={plan.jiraTicket}
+                                onChange={(e) => {
+                                  const jiraTicket = e.target.value
+                                  updatePlan(plan.repo.id, {
+                                    jiraTicket,
+                                    branchName: buildBranchName(
+                                      plan.repo.name,
+                                      jiraTicket,
+                                      plan.targetVersion || plan.pomInfo.springBootVersion || ''
+                                    ),
+                                    preview: null,
+                                    confirmPreview: false,
+                                  })
+                                }}
+                                placeholder="e.g. PROJ-1234"
+                                style={{ width: '100%' }}
+                              />
+                            </div>
+
+                            <div>
+                              <Text strong style={{ display: 'block', marginBottom: 4 }}>New Branch Name</Text>
+                              <Input
+                                value={plan.branchName}
+                                onChange={(e) => updatePlan(plan.repo.id, {
+                                  branchName: e.target.value,
+                                  preview: null,
+                                  confirmPreview: false,
+                                })}
+                                placeholder="e.g. feature/proj-1234/repo-sb-3.3.3"
+                                style={{ width: '100%' }}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <Button type="primary" onClick={() => handleCreatePr(plan)} loading={plan.creatingPr} disabled={!plan.branchMode}>
+                          Create Branch & PR
+                        </Button>
 
                         {plan.prUrl && (
                           <Button type="link" onClick={() => window.open(plan.prUrl, '_blank', 'noopener,noreferrer')} style={{ padding: 0, width: 'fit-content' }}>
