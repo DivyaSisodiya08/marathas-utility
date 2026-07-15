@@ -347,15 +347,6 @@ function ReleaseCutPage() {
 
                 <Card type="inner" title="Select Repository">
                     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                        <Button
-                            type="primary"
-                            icon={<GithubOutlined />}
-                            onClick={loadRepositories}
-                            loading={loadingRepos}
-                        >
-                            {repos.length > 0 ? 'Refresh Repositories' : 'Fetch Repositories'}
-                        </Button>
-
                         {repos.length > 0 && (
                             <>
                                 <Select

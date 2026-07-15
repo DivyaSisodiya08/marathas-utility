@@ -161,16 +161,6 @@ function CreatePullRequestPage() {
                         message="Select repo, branches, title and body to create PR."
                     />
 
-                    <Button
-                        type="primary"
-                        icon={<GithubOutlined />}
-                        onClick={loadRepositories}
-                        loading={loadingRepos}
-                        style={{ width: 'fit-content' }}
-                    >
-                        {repos.length > 0 ? 'Refresh Repositories' : 'Fetch Repositories'}
-                    </Button>
-
                     <Form layout="vertical" form={form} onFinish={handleCreatePr}>
                         <Form.Item
                             name="repoFullName"
@@ -180,7 +170,7 @@ function CreatePullRequestPage() {
                             <Select
                                 showSearch
                                 allowClear
-                                placeholder={repos.length > 0 ? 'Select repository' : 'Fetch repositories first'}
+                                placeholder={repos.length > 0 ? 'Select repository' : 'Open GitHub Access and Fetch Repo first'}
                                 options={repoOptions}
                                 loading={loadingRepos}
                                 disabled={loadingRepos || repos.length === 0}

@@ -16,6 +16,16 @@ const utilityMenuItems = [
     label: 'Create PR',
   },
   {
+    key: '/snapshot-upgrade',
+    icon: <SwapOutlined />,
+    label: 'Snapshot Upgrade',
+  },
+    {
+    key: '/build-status',
+    icon: <DeploymentUnitOutlined />,
+    label: 'Build Status',
+  },
+  {
     key: '/spring-boot-upgrade',
     icon: <CalculatorOutlined />,
     label: 'Spring Boot Upgrade',
@@ -24,11 +34,6 @@ const utilityMenuItems = [
     key: '/repo-tree',
     icon: <ApartmentOutlined />,
     label: 'Repo Dependency Tree',
-  },
-  {
-    key: '/snapshot-upgrade',
-    icon: <SwapOutlined />,
-    label: 'Snapshot Upgrade',
   },
   {
     key: '/release-cut',
@@ -40,11 +45,7 @@ const utilityMenuItems = [
     icon: <GithubOutlined />,
     label: 'GitHub Access',
   },
-  {
-    key: '/build-status',
-    icon: <DeploymentUnitOutlined />,
-    label: 'Build Status',
-  },
+
 ]
 
 function AppSidebar({ selectedKey, onNavigate }) {

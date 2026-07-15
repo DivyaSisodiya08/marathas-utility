@@ -20,7 +20,7 @@ function statusColor(status, conclusion) {
 
 const buildTypeOptions = [
     { value: 'all', label: 'All Builds' },
-    { value: 'docker', label: 'Docker Build' },
+    { value: 'docker', label: 'Build and Test Docker Image' },
     { value: 'coverity', label: 'Coverity' },
     { value: 'blackduck', label: 'BDH' },
     { value: 'twistlock', label: 'Twistlock' },
@@ -217,10 +217,15 @@ function BuildStatusPage() {
 
         try {
             setLoadingRuns(true)
-            const data = await fetchGithubActionRuns(trimmedRepo, branch)
+            const workflowTypeFilter = buildType === 'all' ? '' : buildType
+            const data = await fetchGithubActionRuns(trimmedRepo, branch, workflowTypeFilter)
             setRuns(data)
             if (!silent) {
-                message.success(`Loaded ${data.length} workflow runs`)
+                if (workflowTypeFilter) {
+                    message.success(`Loaded ${data.length} ${workflowTypeFilter} workflow runs`)
+                } else {
+                    message.success(`Loaded ${data.length} workflow runs`)
+                }
             }
             return data
         } catch (error) {
@@ -267,7 +272,7 @@ function BuildStatusPage() {
         }
 
         if (buildType === 'all') {
-            message.warning('Select build type: Docker, Coverity, BDH, or Twistlock')
+            message.warning('Select build type: Build and Test Docker Image, Coverity, BDH, or Twistlock')
             return
         }
 
@@ -296,16 +301,11 @@ function BuildStatusPage() {
 
                 <Card type="inner" title="Repository & Branch">
                     <Row gutter={[12, 12]}>
-                        <Col xs={24} md={4} style={{ display: 'flex', alignItems: 'center' }}>
-                            <Button icon={<GithubOutlined />} type="primary" onClick={loadRepos} loading={loadingRepos} style={{ height: 32 }}>
-                                {repos.length > 0 ? 'Refresh Repositories' : 'Fetch Repositories'}
-                            </Button>
-                        </Col>
                         <Col xs={24} md={10}>
                             <Select
                                 showSearch
                                 disabled={!reposReady}
-                                placeholder={reposReady ? 'Select repository' : 'Fetch repositories first'}
+                                placeholder={reposReady ? 'Select repository' : 'Open GitHub Access and Fetch Repo first'}
                                 optionFilterProp="label"
                                 value={repoFullName || undefined}
                                 onChange={handleRepoChange}
@@ -342,17 +342,7 @@ function BuildStatusPage() {
                                 style={{ width: '100%' }}
                             />
                         </Col>
-                        <Col xs={24} md={8}>
-                            <Button
-                                block
-                                type="primary"
-                                onClick={triggerRun}
-                                loading={triggeringRun}
-                                icon={<PlayCircleOutlined />}
-                            >
-                                Run Build
-                            </Button>
-                        </Col>
+
                         <Col xs={24} md={8}>
                             <Button
                                 block
@@ -365,6 +355,17 @@ function BuildStatusPage() {
                                 icon={<SyncOutlined />}
                             >
                                 Check Build Status
+                            </Button>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Button
+                                block
+                                type="primary"
+                                onClick={triggerRun}
+                                loading={triggeringRun}
+                                icon={<PlayCircleOutlined />}
+                            >
+                                Run Build
                             </Button>
                         </Col>
                     </Row>
@@ -382,7 +383,7 @@ function BuildStatusPage() {
                         columns={columns}
                         dataSource={filteredRuns}
                         loading={loadingRuns}
-                        pagination={{ pageSize: 10 }}
+                        pagination={{ pageSize: 20 }}
                         scroll={{ x: 900 }}
                         locale={{ emptyText: 'No workflow runs found for the selected filters' }}
                     />
