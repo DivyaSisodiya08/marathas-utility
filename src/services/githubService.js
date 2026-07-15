@@ -3,6 +3,23 @@ async function parseJsonSafe(response) {
 }
 
 const REPOS_CACHE_KEY = 'github_repos_cache_v2'
+const PAT_SESSION_KEY = 'github_pat_token'
+
+// Get stored PAT token from session
+function getStoredPat() {
+  if (typeof sessionStorage === 'undefined') return null
+  return sessionStorage.getItem(PAT_SESSION_KEY)
+}
+
+// Build headers with optional PAT token
+function getHeadersWithPat() {
+  const headers = {}
+  const pat = getStoredPat()
+  if (pat) {
+    headers['X-GitHub-PAT'] = pat
+  }
+  return headers
+}
 
 function readReposCache() {
   try {
@@ -45,6 +62,7 @@ export async function fetchGithubRepos(refresh = false) {
 
   const response = await fetch(`/api/github/repos?refresh=${refresh}`, {
     credentials: 'include',
+    headers: getHeadersWithPat(),
   })
 
   const payload = await parseJsonSafe(response)

@@ -82,7 +82,11 @@ public class GithubOAuthService {
     }
 
     public List<JsonNode> fetchAllRepos() {
-        String token = getToken();
+        return fetchAllRepos(null);
+    }
+
+    public List<JsonNode> fetchAllRepos(String optionalPat) {
+        String token = getToken(optionalPat);
         List<JsonNode> allRepos = new ArrayList<>();
         int perPage = 50;
         int page = 1;
@@ -1909,5 +1913,14 @@ public class GithubOAuthService {
             );
         }
         return token;
+    }
+
+    public String getToken(String optionalPat) {
+        // If a PAT is provided, use it
+        if (optionalPat != null && !optionalPat.isBlank()) {
+            return optionalPat;
+        }
+        // Otherwise, fall back to configured token
+        return getToken();
     }
 }

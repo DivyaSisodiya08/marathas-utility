@@ -6,6 +6,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,6 +45,7 @@ public class GithubController {
     @GetMapping("/repos")
     public List<JsonNode> getAllRepos(
             @RequestParam(defaultValue = "false") boolean refresh,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken,
             HttpSession session) {
         Object cachedRepos = session.getAttribute(REPOS_CACHE_KEY);
         if (!refresh && cachedRepos instanceof List<?> cachedList && !cachedList.isEmpty()) {
@@ -60,7 +62,7 @@ public class GithubController {
             }
         }
 
-        List<JsonNode> repos = githubOAuthService.fetchAllRepos();
+        List<JsonNode> repos = githubOAuthService.fetchAllRepos(patToken);
         session.setAttribute(REPOS_CACHE_KEY, repos);
         githubOAuthService.persistReposCache(repos);
         return repos;
