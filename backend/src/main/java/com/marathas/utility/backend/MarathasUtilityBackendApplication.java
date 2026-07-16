@@ -6,9 +6,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 
 import com.marathas.utility.backend.config.AuthProperties;
 import com.marathas.utility.backend.config.GithubOAuthProperties;
+import com.marathas.utility.backend.config.JenkinsProperties;
 
 @SpringBootApplication
-@EnableConfigurationProperties({GithubOAuthProperties.class, AuthProperties.class})
+@EnableConfigurationProperties({GithubOAuthProperties.class, AuthProperties.class, JenkinsProperties.class})
 public class MarathasUtilityBackendApplication {
 
     public static void main(String[] args) {

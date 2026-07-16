@@ -7,6 +7,7 @@ import GithubAccessPage from '../pages/GithubAccessPage'
 import BuildStatusPage from '../pages/BuildStatusPage'
 import ReleaseCutPage from '../pages/ReleaseCutPage'
 import CreatePullRequestPage from '../pages/CreatePullRequestPage'
+import JenkinsDeployPage from '../pages/JenkinsDeployPage'
 
 function AppRouter({ onLogout }) {
   return (
@@ -17,6 +18,7 @@ function AppRouter({ onLogout }) {
         <Route path="/spring-boot-upgrade" element={<SpringBootUpgradePage />} />
         <Route path="/snapshot-upgrade" element={<SnapshotUpgradePage />} />
         <Route path="/release-cut" element={<ReleaseCutPage />} />
+        <Route path="/jenkins-deploy" element={<JenkinsDeployPage />} />
         <Route path="/github-access" element={<GithubAccessPage />} />
         <Route path="/build-status" element={<BuildStatusPage />} />
         <Route path="*" element={<Navigate to="/pr-create" replace />} />
