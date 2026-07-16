@@ -7,6 +7,7 @@ import {
   DeploymentUnitOutlined,
   SwapOutlined,
   RocketOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons'
 
 const utilityMenuItems = [
@@ -20,7 +21,7 @@ const utilityMenuItems = [
     icon: <SwapOutlined />,
     label: 'Snapshot Upgrade',
   },
-    {
+  {
     key: '/build-status',
     icon: <DeploymentUnitOutlined />,
     label: 'Build Status',
@@ -39,6 +40,11 @@ const utilityMenuItems = [
     key: '/release-cut',
     icon: <RocketOutlined />,
     label: 'Release Cut',
+  },
+  {
+    key: '/jenkins-deploy',
+    icon: <CloudServerOutlined />,
+    label: 'Jenkins Deploy',
   },
   {
     key: '/github-access',

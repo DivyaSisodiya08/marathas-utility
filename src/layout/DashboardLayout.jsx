@@ -12,6 +12,7 @@ const pageTitles = {
   '/spring-boot-upgrade': 'Spring Boot Upgrade',
   '/snapshot-upgrade': 'Snapshot Upgrade',
   '/release-cut': 'Release Cut',
+  '/jenkins-deploy': 'Jenkins Deploy',
   '/github-access': 'GitHub Access',
   '/build-status': 'Build Image Status',
 }

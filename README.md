@@ -42,6 +42,19 @@ Set these before starting backend:
 - `LDAP_EXTERNAL_URL` (example: `https://dev.r53.stratas.net/cm/login`)
 - `LDAP_EXTERNAL_SUBMIT_VALUE` (default: `Login`)
 
+**Jenkins:**
+- `JENKINS_BASE_URL` (default: `http://devops-jenkins.r53.stratas.net:8080`)
+- `JENKINS_DEFAULT_JOB_PATH` (default: `deploy/non-prod/us-east-1/stratas-nonprod/dev`)
+- `JENKINS_USERNAME`
+- `JENKINS_API_TOKEN`
+
+## Jenkins API added
+
+- `GET /api/jenkins/config`
+- `GET /api/jenkins/jobs?jobPath=`
+- `GET /api/jenkins/builds?jobPath=&limit=`
+- `POST /api/jenkins/deploy`
+
 ## Run backend
 
 From [backend](backend):

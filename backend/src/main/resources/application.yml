@@ -20,3 +20,9 @@ auth:
   auth-mode: ${AUTH_MODE:dummy}
   external-url: ${AUTH_EXTERNAL_URL:https://dev.r53.stratas.net/cm/login}
   external-submit-value: ${AUTH_EXTERNAL_SUBMIT_VALUE:Login}
+
+jenkins:
+  base-url: ${JENKINS_BASE_URL:http://devops-jenkins.r53.stratas.net:8080}
+  username: ${JENKINS_USERNAME:}
+  api-token: ${JENKINS_API_TOKEN:}
+  default-job-path: ${JENKINS_DEFAULT_JOB_PATH:deploy/non-prod/us-east-1/stratas-nonprod/dev}
