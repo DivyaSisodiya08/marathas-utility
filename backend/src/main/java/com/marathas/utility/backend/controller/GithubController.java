@@ -71,13 +71,23 @@ public class GithubController {
     @GetMapping("/pom")
     public Map<String, String> getPomInfo(
             @RequestParam String repoFullName,
-            @RequestParam(defaultValue = "master") String branch) {
-        return githubOAuthService.fetchPomInfo(repoFullName, branch);
+            @RequestParam(defaultValue = "master") String branch,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.fetchPomInfoWithPat(repoFullName, branch, patToken);
+    }
+
+    @PostMapping("/pom/dependency-graph")
+    public Map<String, Object> getPomDependencyGraph(
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.discoverPomDependencyGraphWithPat(request, patToken);
     }
 
     @GetMapping("/branches")
-    public List<String> getBranches(@RequestParam String repoFullName) {
-        return githubOAuthService.fetchRepoBranches(repoFullName);
+    public List<String> getBranches(
+            @RequestParam String repoFullName,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.fetchRepoBranchesWithPat(repoFullName, patToken);
     }
 
     @GetMapping("/actions/runs")

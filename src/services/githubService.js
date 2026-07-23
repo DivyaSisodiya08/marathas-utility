@@ -1,5 +1,23 @@
 async function parseJsonSafe(response) {
-  return response.json().catch(() => ({}))
+  const raw = await response.text().catch(() => '')
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(raw)
+  } catch {
+    const trimmed = raw.trim()
+    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+      return { error: response.statusText || 'Unexpected HTML response from server' }
+    }
+
+    return { message: trimmed.slice(0, 500) }
+  }
+}
+
+function getApiErrorMessage(payload, fallbackMessage) {
+  return payload?.message || payload?.error || payload?.detail || fallbackMessage
 }
 
 const REPOS_CACHE_KEY = 'github_repos_cache_v2'
@@ -82,13 +100,36 @@ export async function fetchGithubRepos(refresh = false) {
 export async function fetchPomInfo(repoFullName, branch = 'master') {
   const response = await fetch(
     `/api/github/pom?repoFullName=${encodeURIComponent(repoFullName)}&branch=${encodeURIComponent(branch)}`,
-    { credentials: 'include' }
+    {
+      credentials: 'include',
+      headers: getHeadersWithPat(),
+    }
   )
 
   const payload = await parseJsonSafe(response)
 
   if (!response.ok) {
-    throw new Error(payload?.message || 'Failed to read pom.xml')
+    throw new Error(getApiErrorMessage(payload, 'Failed to read pom.xml'))
+  }
+
+  return payload
+}
+
+export async function discoverPomDependencyGraph(request) {
+  const response = await fetch('/api/github/pom/dependency-graph', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeadersWithPat(),
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload, 'Failed to discover pom dependency graph'))
   }
 
   return payload
@@ -97,7 +138,10 @@ export async function fetchPomInfo(repoFullName, branch = 'master') {
 export async function fetchRepoBranches(repoFullName) {
   const response = await fetch(
     `/api/github/branches?repoFullName=${encodeURIComponent(repoFullName)}`,
-    { credentials: 'include' }
+    {
+      credentials: 'include',
+      headers: getHeadersWithPat(),
+    }
   )
 
   const payload = await parseJsonSafe(response)

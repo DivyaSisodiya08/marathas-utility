@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.function.Supplier;
 
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.OutputKeys;
@@ -70,6 +72,7 @@ public class GithubOAuthService {
     private final GithubOAuthProperties properties;
     private final ObjectMapper objectMapper;
     private final GithubPullRequestService githubPullRequestService;
+    private final ThreadLocal<String> requestTokenOverride = new ThreadLocal<>();
 
     public GithubOAuthService(
             RestClient.Builder restClientBuilder,
@@ -235,6 +238,10 @@ public class GithubOAuthService {
         }
     }
 
+    public List<String> fetchRepoBranchesWithPat(String repoFullName, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> fetchRepoBranches(repoFullName));
+    }
+
     public Map<String, String> fetchPomInfo(String repoFullName, String branch) {
         String requestedBranch = (branch == null || branch.isBlank()) ? "master" : branch;
         String[] ownerRepo = parseOwnerRepo(repoFullName);
@@ -292,6 +299,271 @@ public class GithubOAuthService {
         } catch (Exception e) {
             throw new ResponseStatusException(NOT_FOUND, "Failed to parse pom.xml: " + e.getMessage());
         }
+    }
+
+    public Map<String, String> fetchPomInfoWithPat(String repoFullName, String branch, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> fetchPomInfo(repoFullName, branch));
+    }
+
+    private <T> T runWithOptionalPat(String optionalPat, Supplier<T> action) {
+        String token = blankToNull(optionalPat);
+        if (token == null) {
+            return action.get();
+        }
+
+        String previous = requestTokenOverride.get();
+        requestTokenOverride.set(token);
+        try {
+            return action.get();
+        } finally {
+            if (previous == null) {
+                requestTokenOverride.remove();
+            } else {
+                requestTokenOverride.set(previous);
+            }
+        }
+    }
+
+    public Map<String, Object> discoverPomDependencyGraph(Map<String, Object> request) {
+        List<String> repos = parseRepoList(request == null ? null : request.get("repos"));
+        if (repos.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "repos is required and must contain at least one repository");
+        }
+
+        String defaultBranch = normalizeBranch(
+                blankToNull(String.valueOf(request == null ? "" : request.getOrDefault("defaultBranch", "master"))),
+                "master");
+        Map<String, String> requestedBranches = parseStringMap(request == null ? null : request.get("branches"));
+
+        Map<String, Set<String>> providedCoordinatesByRepo = new LinkedHashMap<>();
+        Map<String, Set<String>> requiredCoordinatesByRepo = new LinkedHashMap<>();
+        List<Map<String, Object>> repoDetails = new ArrayList<>();
+        int skippedRepos = 0;
+
+        for (String repoFullName : repos) {
+            String branch = normalizeBranch(requestedBranches.get(repoFullName), defaultBranch);
+            String[] ownerRepo = parseOwnerRepo(repoFullName);
+
+            try {
+                List<PomFile> pomFiles = fetchAllPomFiles(ownerRepo[0], ownerRepo[1], branch);
+                if (pomFiles.isEmpty()) {
+                    pomFiles = List.of(fetchPomFileWithFallback(ownerRepo[0], ownerRepo[1], branch));
+                }
+
+                Set<String> providedCoordinates = new LinkedHashSet<>();
+                Set<String> requiredCoordinates = new LinkedHashSet<>();
+
+                for (PomFile pomFile : pomFiles) {
+                    collectPomCoordinates(pomFile.content(), providedCoordinates, requiredCoordinates);
+                }
+
+                providedCoordinatesByRepo.put(repoFullName, providedCoordinates);
+                requiredCoordinatesByRepo.put(repoFullName, requiredCoordinates);
+
+                Map<String, String> versionInfo = extractVersionInfo(pomFiles.get(0).content());
+                Map<String, Object> repoRow = new LinkedHashMap<>();
+                repoRow.put("repoFullName", repoFullName);
+                repoRow.put("branch", branch);
+                repoRow.put("pomFilesScanned", pomFiles.size());
+                repoRow.put("springBootVersion", versionInfo.getOrDefault("springBootVersion", ""));
+                repoRow.put("providedCoordinates", new ArrayList<>(providedCoordinates));
+                repoRow.put("requiredCoordinates", new ArrayList<>(requiredCoordinates));
+                repoRow.put("status", "analyzed");
+                repoDetails.add(repoRow);
+            } catch (Exception e) {
+                skippedRepos++;
+                Map<String, Object> skippedRow = new LinkedHashMap<>();
+                skippedRow.put("repoFullName", repoFullName);
+                skippedRow.put("branch", branch);
+                skippedRow.put("pomFilesScanned", 0);
+                skippedRow.put("springBootVersion", "");
+                skippedRow.put("providedCoordinates", List.of());
+                skippedRow.put("requiredCoordinates", List.of());
+                skippedRow.put("status", "skipped");
+                skippedRow.put("reason", resolveDiscoverySkipReason(e));
+                repoDetails.add(skippedRow);
+            }
+        }
+
+        Map<String, Set<String>> providersByCoordinate = new LinkedHashMap<>();
+        for (Map.Entry<String, Set<String>> entry : providedCoordinatesByRepo.entrySet()) {
+            String repoFullName = entry.getKey();
+            for (String coordinate : entry.getValue()) {
+                providersByCoordinate
+                        .computeIfAbsent(coordinate, key -> new LinkedHashSet<>())
+                        .add(repoFullName);
+            }
+        }
+
+        Set<String> uniqueEdges = new LinkedHashSet<>();
+        Set<String> incomingRepos = new HashSet<>();
+        List<Map<String, String>> edges = new ArrayList<>();
+
+        for (String childRepo : repos) {
+            Set<String> requiredCoordinates = requiredCoordinatesByRepo.getOrDefault(childRepo, Set.of());
+            for (String coordinate : requiredCoordinates) {
+                Set<String> providerRepos = providersByCoordinate.getOrDefault(coordinate, Set.of());
+                for (String parentRepo : providerRepos) {
+                    if (parentRepo.equals(childRepo)) {
+                        continue;
+                    }
+
+                    String edgeKey = parentRepo + "->" + childRepo;
+                    if (!uniqueEdges.add(edgeKey)) {
+                        continue;
+                    }
+
+                    incomingRepos.add(childRepo);
+                    Map<String, String> edge = new LinkedHashMap<>();
+                    edge.put("parentRepo", parentRepo);
+                    edge.put("childRepo", childRepo);
+                    edge.put("reason", coordinate);
+                    edges.add(edge);
+                }
+            }
+        }
+
+        List<String> roots = new ArrayList<>();
+        for (String repo : repos) {
+            if (!incomingRepos.contains(repo)) {
+                roots.add(repo);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("defaultBranch", defaultBranch);
+        result.put("reposAnalyzed", repos.size());
+        result.put("reposSkipped", skippedRepos);
+        result.put("repos", repoDetails);
+        result.put("edges", edges);
+        result.put("roots", roots);
+        return result;
+    }
+
+    public Map<String, Object> discoverPomDependencyGraphWithPat(Map<String, Object> request, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> discoverPomDependencyGraph(request));
+    }
+
+    private String resolveDiscoverySkipReason(Exception e) {
+        if (e instanceof ResponseStatusException responseStatusException) {
+            String reason = blankToNull(responseStatusException.getReason());
+            return reason == null ? "Repository could not be analyzed" : reason;
+        }
+
+        if (e instanceof HttpClientErrorException httpClientErrorException) {
+            String message = blankToNull(extractGithubErrorMessage(httpClientErrorException.getResponseBodyAsString()));
+            if (message != null) {
+                return message;
+            }
+        }
+
+        String fallback = blankToNull(e.getMessage());
+        return fallback == null ? "Repository could not be analyzed" : fallback;
+    }
+
+    private List<String> parseRepoList(Object rawValue) {
+        if (!(rawValue instanceof List<?> rawList)) {
+            return List.of();
+        }
+
+        List<String> repos = new ArrayList<>();
+        for (Object rawRepo : rawList) {
+            String repo = blankToNull(rawRepo == null ? null : String.valueOf(rawRepo));
+            if (repo != null) {
+                repos.add(repo);
+            }
+        }
+
+        return repos;
+    }
+
+    private Map<String, String> parseStringMap(Object rawValue) {
+        if (!(rawValue instanceof Map<?, ?> rawMap)) {
+            return Map.of();
+        }
+
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+            String key = blankToNull(entry.getKey() == null ? null : String.valueOf(entry.getKey()));
+            String value = blankToNull(entry.getValue() == null ? null : String.valueOf(entry.getValue()));
+            if (key != null && value != null) {
+                result.put(key, value);
+            }
+        }
+
+        return result;
+    }
+
+    private void collectPomCoordinates(String pomXml, Set<String> providedCoordinates, Set<String> requiredCoordinates) {
+        try {
+            Document doc = DocumentBuilderFactory.newInstance()
+                    .newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(pomXml.getBytes(StandardCharsets.UTF_8)));
+            doc.getDocumentElement().normalize();
+
+            Map<String, String> props = extractProperties(doc);
+            Element project = doc.getDocumentElement();
+
+            Element parentElement = null;
+            NodeList parentNodes = project.getElementsByTagName("parent");
+            if (parentNodes.getLength() > 0 && parentNodes.item(0).getNodeType() == Node.ELEMENT_NODE) {
+                parentElement = (Element) parentNodes.item(0);
+            }
+
+            String parentGroupId = parentElement == null ? "" : getDirectChildText(parentElement, "groupId");
+            String projectGroupId = getDirectChildText(project, "groupId");
+            if (projectGroupId.isBlank()) {
+                projectGroupId = parentGroupId;
+            }
+            String projectArtifactId = getDirectChildText(project, "artifactId");
+
+            String projectCoordinate = toCoordinate(
+                    resolve(projectGroupId, props),
+                    resolve(projectArtifactId, props));
+            if (projectCoordinate != null) {
+                providedCoordinates.add(projectCoordinate);
+            }
+
+            if (parentElement != null) {
+                String parentCoordinate = toCoordinate(
+                        resolve(getDirectChildText(parentElement, "groupId"), props),
+                        resolve(getDirectChildText(parentElement, "artifactId"), props));
+                if (parentCoordinate != null) {
+                    requiredCoordinates.add(parentCoordinate);
+                }
+            }
+
+            NodeList dependencyNodes = doc.getElementsByTagName("dependency");
+            for (int i = 0; i < dependencyNodes.getLength(); i++) {
+                Node node = dependencyNodes.item(i);
+                if (node.getNodeType() != Node.ELEMENT_NODE) {
+                    continue;
+                }
+
+                Element dependency = (Element) node;
+                String groupId = resolve(getDirectChildText(dependency, "groupId"), props);
+                if (groupId.startsWith("${project.groupId}")) {
+                    groupId = resolve(projectGroupId, props);
+                }
+
+                String artifactId = resolve(getDirectChildText(dependency, "artifactId"), props);
+                String dependencyCoordinate = toCoordinate(groupId, artifactId);
+                if (dependencyCoordinate != null) {
+                    requiredCoordinates.add(dependencyCoordinate);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse pom.xml for dependency discovery: {}", e.getMessage());
+        }
+    }
+
+    private String toCoordinate(String groupId, String artifactId) {
+        String normalizedGroup = blankToNull(groupId);
+        String normalizedArtifact = blankToNull(artifactId);
+        if (normalizedGroup == null || normalizedArtifact == null) {
+            return null;
+        }
+        return normalizedGroup + ":" + normalizedArtifact;
     }
 
     private String fetchPomWithFallback(String owner, String repo, String requestedBranch) {
@@ -857,12 +1129,21 @@ public class GithubOAuthService {
     }
 
     private PomFile fetchPomFromContents(String owner, String repo, String path, String branch) {
-        JsonNode fileNode = restClient.get()
-                .uri("https://api.github.com/repos/{owner}/{repo}/contents/" + path + "?ref={branch}", owner, repo, branch)
-                .header("Authorization", "Bearer " + getToken())
-                .header("Accept", "application/vnd.github+json")
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode fileNode;
+        try {
+            fileNode = restClient.get()
+                    .uri("https://api.github.com/repos/{owner}/{repo}/contents/" + path + "?ref={branch}", owner, repo, branch)
+                    .header("Authorization", "Bearer " + getToken())
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            if (status == 404 || status == 409) {
+                return null;
+            }
+            throw e;
+        }
 
         if (fileNode == null || fileNode.path("content").isMissingNode()) {
             return null;
@@ -900,12 +1181,24 @@ public class GithubOAuthService {
     }
 
     private List<String> findPomPathsInTree(String owner, String repo, String branch) {
-        JsonNode tree = restClient.get()
-                .uri("https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1", owner, repo, branch)
-                .header("Authorization", "Bearer " + getToken())
-                .header("Accept", "application/vnd.github+json")
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode tree;
+        try {
+            tree = restClient.get()
+                    .uri("https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1", owner, repo, branch)
+                    .header("Authorization", "Bearer " + getToken())
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (HttpClientErrorException e) {
+            String responseBody = blankToNull(e.getResponseBodyAsString());
+            boolean isEmptyRepo = e.getStatusCode().value() == 409
+                    && responseBody != null
+                    && responseBody.toLowerCase(Locale.ROOT).contains("git repository is empty");
+            if (isEmptyRepo) {
+                return new ArrayList<>();
+            }
+            throw e;
+        }
 
         if (tree == null || !tree.path("tree").isArray()) {
             return new ArrayList<>();
@@ -1901,6 +2194,11 @@ public class GithubOAuthService {
     }
 
     private String getToken() {
+        String overridden = requestTokenOverride.get();
+        if (overridden != null) {
+            return overridden;
+        }
+
         String token = blankToNull(properties.getPersonalToken());
         if (token == null) {
             token = blankToNull(System.getenv("GITHUB_PERSONAL_TOKEN"));
