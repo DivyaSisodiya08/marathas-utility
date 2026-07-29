@@ -26,6 +26,6 @@ auth:
 
 jenkins:
   base-url: ${JENKINS_BASE_URL:http://devops-jenkins.r53.stratas.net:8080}
-  username: ${JENKINS_USERNAME:}
-  api-token: ${JENKINS_API_TOKEN:}
+  username: ${JENKINS_USERNAME:jenkins}
+  api-token: ${JENKINS_API_TOKEN:jenkins}
   default-job-path: ${JENKINS_DEFAULT_JOB_PATH:deploy/non-prod/us-east-1/stratas-nonprod/dev}

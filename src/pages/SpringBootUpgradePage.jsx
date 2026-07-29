@@ -200,32 +200,26 @@ function buildTreeFromDependencyGraph(graphPayload) {
     ? rootCandidates
     : Array.from(repoSet).filter((repo) => (incomingCount.get(repo) || 0) === 0)
 
-  // Ant Tree expects stable, unique node keys in a strict tree (not a DAG).
-  // Render each repo at most once and break cycles by path.
-  const rendered = new Set()
-  const buildNode = (repo, path = new Set()) => {
-    if (path.has(repo)) {
+  // Allow shared children across multiple parents by rendering per-path nodes.
+  // Use path-based keys so repeated repos remain unique in Ant Tree.
+  const buildNode = (repo, path = []) => {
+    const nextPath = [...path, repo]
+    const nodeKey = nextPath.join(' -> ')
+
+    if (path.includes(repo)) {
       return {
-        key: repo,
+        key: nodeKey,
         title: shortRepoName(repo),
         children: [],
       }
     }
 
-    if (rendered.has(repo)) {
-      return null
-    }
-
-    rendered.add(repo)
-
-    const nextPath = new Set(path)
-    nextPath.add(repo)
     const children = Array.from(childrenByParent.get(repo) || [])
       .map((childRepo) => buildNode(childRepo, nextPath))
       .filter(Boolean)
 
     return {
-      key: repo,
+      key: nodeKey,
       title: shortRepoName(repo),
       children,
     }
@@ -237,10 +231,7 @@ function buildTreeFromDependencyGraph(graphPayload) {
 
   if (tree.length === 0) {
     Array.from(repoSet).forEach((repo) => {
-      const node = buildNode(repo)
-      if (node) {
-        tree.push(node)
-      }
+      tree.push(buildNode(repo))
     })
   }
 
@@ -931,7 +922,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBlock: 2 }}>
             <Space size={6} wrap>
               <Text strong>{node.title}</Text>
-              {statusTag}
+              {!forceDependencyOnly ? statusTag : null}
             </Space>
             <Text type="secondary" style={{ fontSize: 12 }}>
               Parent: {parentLabel} | Dependents: {childCount}
@@ -1235,43 +1226,47 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         </Space>
       ) : (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Card type="inner" title="Springboot Shared & Dependency Discovery">
+          <Card type="inner" title={forceDependencyOnly ? 'Dependency Discovery' : 'Springboot Shared & Dependency Discovery'}>
             <Space direction="vertical" size={14} style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col xs={24} md={12}>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>Springboot Shared Repository</Text>
-                  <Select
-                    showSearch
-                    allowClear
-                    optionFilterProp="label"
-                    placeholder="Select springboot-shared repository"
-                    value={sharedRepoFullName || undefined}
-                    onChange={(value) => setSharedRepoFullName(value || '')}
-                    options={repoOptions}
-                    style={{ width: '100%' }}
-                  />
-                </Col>
-                <Col xs={24} md={6}>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>Branch</Text>
-                  <Input value={sharedBranch} onChange={(event) => setSharedBranch(event.target.value)} placeholder="master" />
-                </Col>
-                <Col xs={24} md={6}>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>&nbsp;</Text>
-                  <Button block loading={loadingSharedVersion} onClick={handleReadSharedVersion}>
-                    Read Shared Version
-                  </Button>
-                </Col>
-              </Row>
+              {!forceDependencyOnly ? (
+                <>
+                  <Row gutter={[12, 12]}>
+                    <Col xs={24} md={12}>
+                      <Text strong style={{ display: 'block', marginBottom: 4 }}>Springboot Shared Repository</Text>
+                      <Select
+                        showSearch
+                        allowClear
+                        optionFilterProp="label"
+                        placeholder="Select springboot-shared repository"
+                        value={sharedRepoFullName || undefined}
+                        onChange={(value) => setSharedRepoFullName(value || '')}
+                        options={repoOptions}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                    <Col xs={24} md={6}>
+                      <Text strong style={{ display: 'block', marginBottom: 4 }}>Branch</Text>
+                      <Input value={sharedBranch} onChange={(event) => setSharedBranch(event.target.value)} placeholder="master" />
+                    </Col>
+                    <Col xs={24} md={6}>
+                      <Text strong style={{ display: 'block', marginBottom: 4 }}>&nbsp;</Text>
+                      <Button block loading={loadingSharedVersion} onClick={handleReadSharedVersion}>
+                        Read Shared Version
+                      </Button>
+                    </Col>
+                  </Row>
 
-              {sharedVersionInfo ? (
-                <div style={{ padding: 10, background: '#f6ffed', borderRadius: 8 }}>
-                  <Text>
-                    Current Spring Boot Version: <Text strong>{sharedVersionInfo.springBootVersion || 'Not found'}</Text>
-                  </Text>
-                </div>
+                  {sharedVersionInfo ? (
+                    <div style={{ padding: 10, background: '#f6ffed', borderRadius: 8 }}>
+                      <Text>
+                        Current Spring Boot Version: <Text strong>{sharedVersionInfo.springBootVersion || 'Not found'}</Text>
+                      </Text>
+                    </div>
+                  ) : null}
+
+                  <Divider style={{ margin: '6px 0' }} />
+                </>
               ) : null}
-
-              <Divider style={{ margin: '6px 0' }} />
 
               <Row gutter={[12, 12]}>
                 <Col xs={24} md={14}>
@@ -1405,7 +1400,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
           </Card>
 
           <Row gutter={[16, 16]}>
-            <Col xs={24} lg={14}>
+            <Col xs={24} lg={forceDependencyOnly ? 24 : 14}>
               <Card type="inner" title="Dependency Tree">
                 <Space wrap size={8} style={{ marginBottom: 10 }}>
                   <Tag color="blue">Nodes: {graphSummary.totalNodes}</Tag>
@@ -1415,9 +1410,9 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                 </Space>
 
                 <Space wrap size={8} style={{ marginBottom: 10 }}>
-                  <Tag>Pending</Tag>
-                  <Tag color="processing">Running</Tag>
-                  <Tag color="success">Completed</Tag>
+                  {!forceDependencyOnly ? <Tag>Pending</Tag> : null}
+                  {!forceDependencyOnly ? <Tag color="processing">Running</Tag> : null}
+                  {!forceDependencyOnly ? <Tag color="success">Completed</Tag> : null}
                   <Button size="small" onClick={() => setDependencyExpandedKeys(dependencyNodeKeys)}>
                     Expand All
                   </Button>
@@ -1447,6 +1442,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
               </Card>
             </Col>
 
+            {!forceDependencyOnly ? (
             <Col xs={24} lg={10}>
               <Card type="inner" title="HT Build Section">
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1523,9 +1519,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                 </Space>
               </Card>
             </Col>
+            ) : null}
           </Row>
 
-          <BuildStatusPage />
+          {!forceDependencyOnly ? <BuildStatusPage /> : null}
         </Space>
       )}
     </Card>
