@@ -1,7 +1,7 @@
 import { Card, Input, Space, Typography, Button, message, Divider, Spin, Select, Checkbox, Table, Tabs, Row, Col, Tree, Switch, Tag } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { GithubOutlined, BranchesOutlined, PlayCircleOutlined } from '@ant-design/icons'
-import { createUpgradePullRequest, discoverPomDependencyGraph, fetchGithubRepos, fetchPomInfo, fetchRepoBranches, previewUpgradePullRequest } from '../services/githubService'
+import { createUpgradeBranch, createUpgradePullRequestOnly, discoverPomDependencyGraph, fetchGithubRepos, fetchPomInfo, fetchRepoBranches, previewUpgradePullRequest } from '../services/githubService'
 import BuildStatusPage from './BuildStatusPage'
 
 const { Text } = Typography
@@ -357,8 +357,11 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
               branchMode: plan?.branchMode || 'new',
               existingBranch: plan?.existingBranch || plan?.branch || 'master',
               loadingPreview: plan?.loadingPreview || false,
+              applyingBranch: plan?.applyingBranch || false,
               preview: plan?.preview || null,
               confirmPreview: plan?.confirmPreview || false,
+              branchPrepared: plan?.branchPrepared || false,
+              commitSha: plan?.commitSha || '',
             })))
           }
         }
@@ -435,6 +438,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         pomInfo: null,
         loadingPom: false,
         loadingPreview: false,
+        applyingBranch: false,
         creatingPr: false,
         targetVersion: '',
         existingBranch: 'master',
@@ -443,6 +447,8 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         branchName: '',
         preview: null,
         confirmPreview: false,
+        branchPrepared: false,
+        commitSha: '',
         prUrl: '',
         prNumber: '',
       },
@@ -508,6 +514,8 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         branchName: buildBranchName(plan.repo.name, plan.jiraTicket, info.springBootVersion),
         preview: null,
         confirmPreview: false,
+        branchPrepared: false,
+        commitSha: '',
         prUrl: '',
         prNumber: '',
       })
@@ -534,46 +542,89 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
       .replace(/\/+$/, '')
   }
 
-  const handleCreatePr = async (plan) => {
+  const getTargetBranchName = (plan) => (plan.branchMode === 'existing' ? plan.existingBranch : plan.branchName)
+
+  const validateUpgradeInputs = (plan) => {
     if (!plan.pomInfo) {
       message.warning(`Read pom.xml first for ${plan.repo.name}`)
-      return
+      return false
     }
 
     if (!plan.branchMode) {
       message.warning(`Select branch option (New or Existing) for ${plan.repo.name}`)
-      return
+      return false
     }
 
     if (plan.branchMode === 'new' && !plan.branchName) {
       message.warning(`Branch name is required for ${plan.repo.name}`)
-      return
+      return false
     }
 
     if (plan.branchMode === 'existing' && !plan.existingBranch) {
       message.warning(`Select existing branch for ${plan.repo.name}`)
-      return
+      return false
     }
 
     if (!plan.targetVersion) {
       message.warning(`Provide target Spring Boot version for ${plan.repo.name}`)
-      return
+      return false
     }
 
     if (!plan.preview) {
       message.warning(`Generate preview first for ${plan.repo.name}`)
-      return
+      return false
     }
 
     if (!plan.confirmPreview) {
-      message.warning(`Confirm preview changes before creating PR for ${plan.repo.name}`)
+      message.warning(`Confirm preview changes before creating branch for ${plan.repo.name}`)
+      return false
+    }
+    return true
+  }
+
+  const handleCreateBranch = async (plan) => {
+    if (!validateUpgradeInputs(plan)) {
+      return
+    }
+
+    try {
+      updatePlan(plan.repo.id, { applyingBranch: true })
+      const targetBranchName = getTargetBranchName(plan)
+      const result = await createUpgradeBranch({
+        repoFullName: plan.repo.full_name,
+        sourceBranch: plan.branch,
+        baseBranch: plan.branch,
+        branchName: targetBranchName,
+        targetSpringBootVersion: plan.targetVersion,
+        jiraTicket: plan.branchMode === 'new' ? plan.jiraTicket : '',
+      })
+
+      updatePlan(plan.repo.id, {
+        applyingBranch: false,
+        branchPrepared: true,
+        commitSha: result.commitSha || '',
+        branchName: result.branchName || targetBranchName,
+        existingBranch: result.branchName || plan.existingBranch,
+        prUrl: '',
+        prNumber: '',
+      })
+      message.success(`Branch updated for ${plan.repo.name}. Review and create PR when ready.`)
+    } catch (error) {
+      updatePlan(plan.repo.id, { applyingBranch: false })
+      message.error(error.message || `Failed to update branch for ${plan.repo.name}`)
+    }
+  }
+
+  const handleCreatePr = async (plan) => {
+    if (!plan.branchPrepared) {
+      message.warning(`Create/update branch first for ${plan.repo.name}`)
       return
     }
 
     try {
       updatePlan(plan.repo.id, { creatingPr: true })
-      const targetBranchName = plan.branchMode === 'existing' ? plan.existingBranch : plan.branchName
-      const result = await createUpgradePullRequest({
+      const targetBranchName = getTargetBranchName(plan)
+      const result = await createUpgradePullRequestOnly({
         repoFullName: plan.repo.full_name,
         sourceBranch: plan.branch,
         baseBranch: plan.branch,
@@ -612,6 +663,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         loadingPreview: true,
         preview: null,
         confirmPreview: false,
+        branchPrepared: false,
+        commitSha: '',
+        prUrl: '',
+        prNumber: '',
       })
 
       const preview = await previewUpgradePullRequest({
@@ -624,6 +679,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         loadingPreview: false,
         preview,
         confirmPreview: false,
+        branchPrepared: false,
+        commitSha: '',
+        prUrl: '',
+        prNumber: '',
       })
       message.success(`Preview generated for ${plan.repo.name}`)
     } catch (error) {
@@ -631,6 +690,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
         loadingPreview: false,
         preview: null,
         confirmPreview: false,
+        branchPrepared: false,
+        commitSha: '',
+        prUrl: '',
+        prNumber: '',
       })
       message.error(error.message || `Failed to generate preview for ${plan.repo.name}`)
     }
@@ -1056,6 +1119,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                                 targetVersion: e.target.value,
                                 preview: null,
                                 confirmPreview: false,
+                                branchPrepared: false,
+                                commitSha: '',
+                                prUrl: '',
+                                prNumber: '',
                               })}
                               placeholder="e.g. 3.3.2"
                               style={{ width: '100%' }}
@@ -1108,7 +1175,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                               checked={plan.confirmPreview}
                               onChange={(e) => updatePlan(plan.repo.id, { confirmPreview: e.target.checked })}
                             >
-                              I confirm previewed changes and want to create branch and PR
+                              I confirm previewed changes and want to update branch
                             </Checkbox>
                           </Space>
                         )}
@@ -1121,6 +1188,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                                 branchMode: e.target.checked ? 'new' : '',
                                 preview: null,
                                 confirmPreview: false,
+                                branchPrepared: false,
+                                commitSha: '',
+                                prUrl: '',
+                                prNumber: '',
                               })}
                             >
                               New Branch
@@ -1131,6 +1202,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                                 branchMode: e.target.checked ? 'existing' : '',
                                 preview: null,
                                 confirmPreview: false,
+                                branchPrepared: false,
+                                commitSha: '',
+                                prUrl: '',
+                                prNumber: '',
                               })}
                             >
                               Existing Branch
@@ -1147,6 +1222,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                                 existingBranch: value,
                                 preview: null,
                                 confirmPreview: false,
+                                branchPrepared: false,
+                                commitSha: '',
+                                prUrl: '',
+                                prNumber: '',
                               })}
                               options={(plan.branches || []).map((name) => ({ value: name, label: name }))}
                               loading={plan.loadingBranches}
@@ -1183,6 +1262,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                                     ),
                                     preview: null,
                                     confirmPreview: false,
+                                    branchPrepared: false,
+                                    commitSha: '',
+                                    prUrl: '',
+                                    prNumber: '',
                                   })
                                 }}
                                 placeholder="e.g. PROJ-1234"
@@ -1198,6 +1281,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                                   branchName: e.target.value,
                                   preview: null,
                                   confirmPreview: false,
+                                  branchPrepared: false,
+                                  commitSha: '',
+                                  prUrl: '',
+                                  prNumber: '',
                                 })}
                                 placeholder="e.g. feature/proj-1234/repo-sb-3.3.3"
                                 style={{ width: '100%' }}
@@ -1206,9 +1293,21 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                           </div>
                         ) : null}
 
-                        <Button type="primary" onClick={() => handleCreatePr(plan)} loading={plan.creatingPr} disabled={!plan.branchMode}>
-                          Create Branch & PR
-                        </Button>
+                        <Space wrap size={10}>
+                          <Button type="primary" onClick={() => handleCreateBranch(plan)} loading={plan.applyingBranch} disabled={!plan.branchMode}>
+                            Create/Update Branch
+                          </Button>
+                          <Button onClick={() => handleCreatePr(plan)} loading={plan.creatingPr} disabled={!plan.branchMode || !plan.branchPrepared}>
+                            Create PR
+                          </Button>
+                        </Space>
+
+                        {plan.branchPrepared ? (
+                          <Text type="secondary">
+                            Branch ready: <Text code>{getTargetBranchName(plan)}</Text>
+                            {plan.commitSha ? ` | Commit: ${plan.commitSha}` : ''}
+                          </Text>
+                        ) : null}
 
                         {plan.prUrl && (
                           <Button type="link" onClick={() => window.open(plan.prUrl, '_blank', 'noopener,noreferrer')} style={{ padding: 0, width: 'fit-content' }}>

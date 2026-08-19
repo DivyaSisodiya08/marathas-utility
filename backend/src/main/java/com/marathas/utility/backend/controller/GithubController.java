@@ -129,13 +129,31 @@ public class GithubController {
     }
 
     @PostMapping("/upgrade-pr")
-    public Map<String, String> createUpgradePullRequest(@RequestBody Map<String, String> request) {
-        return githubOAuthService.createUpgradePullRequest(request);
+    public Map<String, String> createUpgradePullRequest(
+            @RequestBody Map<String, String> request,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.createUpgradePullRequestWithPat(request, patToken);
+    }
+
+    @PostMapping("/upgrade-branch")
+    public Map<String, String> applyUpgradeToBranch(
+            @RequestBody Map<String, String> request,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.applyUpgradeToBranchWithPat(request, patToken);
+    }
+
+    @PostMapping("/upgrade-pr/create")
+    public Map<String, String> createUpgradePullRequestOnly(
+            @RequestBody Map<String, String> request,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.createUpgradePullRequestOnlyWithPat(request, patToken);
     }
 
     @PostMapping("/upgrade-pr/preview")
-    public Map<String, Object> previewUpgradePullRequest(@RequestBody Map<String, String> request) {
-        return githubOAuthService.previewUpgradePullRequest(request);
+    public Map<String, Object> previewUpgradePullRequest(
+            @RequestBody Map<String, String> request,
+            @RequestHeader(value = "X-GitHub-PAT", required = false) String patToken) {
+        return githubOAuthService.previewUpgradePullRequestWithPat(request, patToken);
     }
 
     @PostMapping("/release-cut")

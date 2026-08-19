@@ -685,6 +685,15 @@ public class GithubOAuthService {
     }
 
     public Map<String, String> createUpgradePullRequest(Map<String, String> request) {
+        Map<String, String> branchResult = applyUpgradeToBranch(request);
+        Map<String, String> prResult = createUpgradePullRequestOnly(request);
+
+        Map<String, String> result = new LinkedHashMap<>(branchResult);
+        result.putAll(prResult);
+        return result;
+    }
+
+    public Map<String, String> applyUpgradeToBranch(Map<String, String> request) {
         String repoFullName = requireValue(request.get("repoFullName"), "repoFullName");
         String sourceBranch = normalizeBranch(request.get("sourceBranch"), "master");
         String baseBranch = normalizeBranch(request.get("baseBranch"), sourceBranch);
@@ -730,26 +739,69 @@ public class GithubOAuthService {
             updatedPom,
             commitMessage);
 
-        String prTitle = buildPrTitle(repo, targetSpringBootVersion, jiraTicket);
-        String prBody = buildPrBody(
-            currentVersions,
-            targetSpringBootVersion,
-            jiraTicket,
-            featurePomFile.path(),
-            sourceBranch);
-        Map<String, String> prResult = createPullRequest(repoFullName, baseBranch, branchName, prTitle, prBody);
-
         Map<String, String> result = new LinkedHashMap<>();
         result.put("branchName", branchName);
         result.put("baseBranch", baseBranch);
         result.put("sourceBranch", pomFile.branch());
         result.put("pomPath", featurePomFile.path());
         result.put("commitSha", commitResponse.path("commit").path("sha").asText(""));
+        result.put("targetSpringBootVersion", targetSpringBootVersion);
+        result.put("jiraTicket", jiraTicket == null ? "" : jiraTicket);
+        return result;
+    }
+
+    public Map<String, String> createUpgradePullRequestWithPat(Map<String, String> request, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> createUpgradePullRequest(request));
+    }
+
+    public Map<String, String> applyUpgradeToBranchWithPat(Map<String, String> request, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> applyUpgradeToBranch(request));
+    }
+
+    public Map<String, String> createUpgradePullRequestOnly(Map<String, String> request) {
+        String repoFullName = requireValue(request.get("repoFullName"), "repoFullName");
+        String sourceBranch = normalizeBranch(request.get("sourceBranch"), "master");
+        String baseBranch = normalizeBranch(request.get("baseBranch"), sourceBranch);
+        String branchName = requireValue(request.get("branchName"), "branchName");
+        String targetSpringBootVersion = blankToNull(request.get("targetSpringBootVersion"));
+        String jiraTicket = blankToNull(request.get("jiraTicket"));
+
+        if (targetSpringBootVersion == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "targetSpringBootVersion is required");
+        }
+
+        String[] ownerRepo = parseOwnerRepo(repoFullName);
+        String owner = ownerRepo[0];
+        String repo = ownerRepo[1];
+
+        // Ensure source and target branches resolve before creating the PR.
+        fetchBranchRef(owner, repo, sourceBranch);
+        fetchBranchRef(owner, repo, branchName);
+
+        PomFile sourcePomFile = fetchPomFileWithFallback(owner, repo, sourceBranch);
+        Map<String, String> currentVersions = extractVersionInfo(sourcePomFile.content());
+        String prTitle = buildPrTitle(repo, targetSpringBootVersion, jiraTicket);
+        String prBody = buildPrBody(
+            currentVersions,
+            targetSpringBootVersion,
+            jiraTicket,
+            sourcePomFile.path(),
+            sourceBranch);
+        Map<String, String> prResult = createPullRequest(repoFullName, baseBranch, branchName, prTitle, prBody);
+
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put("branchName", branchName);
+        result.put("baseBranch", baseBranch);
+        result.put("sourceBranch", sourceBranch);
         result.put("prUrl", prResult.getOrDefault("prUrl", ""));
         result.put("prNumber", prResult.getOrDefault("prNumber", ""));
         result.put("prCreated", prResult.getOrDefault("created", ""));
         result.put("prExisting", prResult.getOrDefault("existing", ""));
         return result;
+    }
+
+    public Map<String, String> createUpgradePullRequestOnlyWithPat(Map<String, String> request, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> createUpgradePullRequestOnly(request));
     }
 
     public Map<String, Object> previewUpgradePullRequest(Map<String, String> request) {
@@ -782,6 +834,10 @@ public class GithubOAuthService {
         result.put("pomSpringBootFindings", pomSpringBootFindings);
         result.put("totalSpringBootFindings", pomSpringBootFindings.size());
         return result;
+    }
+
+    public Map<String, Object> previewUpgradePullRequestWithPat(Map<String, String> request, String optionalPat) {
+        return runWithOptionalPat(optionalPat, () -> previewUpgradePullRequest(request));
     }
 
     public Map<String, String> createReleaseCut(Map<String, String> request) {
