@@ -1,0 +1,19 @@
+name: Build and Test Docker Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  docker-build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t marathas-utility:test .
+
+      - name: Run Docker image smoke test
+        run: |
+          docker run --rm marathas-utility:test
