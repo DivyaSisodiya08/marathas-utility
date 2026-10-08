@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Button, Card, List, Space, Typography, message, Tag, Divider, Input, Steps, Alert, Collapse, Row, Col } from 'antd'
 import { GithubOutlined, StarOutlined, CodeOutlined, DeleteOutlined, KeyOutlined, CheckCircleOutlined, FileTextOutlined, BranchesOutlined, ThunderboltOutlined, AuditOutlined } from '@ant-design/icons'
-import { fetchGithubRepos } from '../services/githubService'
+import { clearPatToken, fetchGithubRepos, getStoredPatToken, savePatToken } from '../services/githubService'
 
-const { Text, Title, Paragraph } = Typography
+const { Text, Title } = Typography
 
 const GITHUB_URL = 'https://github.com/'
-const PAT_SESSION_KEY = 'github_pat_token'
 const FINE_GRAINED_PAT_URL = 'https://github.com/settings/tokens?type=beta'
 
 function GithubAccessPage() {
   const [repos, setRepos] = useState([])
   const [isFetching, setIsFetching] = useState(false)
   const [patToken, setPatToken] = useState('')
-  const [storedPat, setStoredPat] = useState(null)
+  const [storedPat, setStoredPat] = useState(() => getStoredPatToken())
   const [isSavingPat, setIsSavingPat] = useState(false)
 
   const openGithub = () => {
@@ -41,20 +40,19 @@ function GithubAccessPage() {
 
     try {
       setIsSavingPat(true)
-      // Store PAT in session storage
-      sessionStorage.setItem(PAT_SESSION_KEY, patToken)
-      setStoredPat(patToken)
+      const savedToken = savePatToken(patToken)
+      setStoredPat(savedToken)
       setPatToken('')
       message.success('PAT token saved to session. Ready to fetch repositories!')
     } catch (error) {
-      message.error('Failed to save PAT token')
+      message.error(error.message || 'Failed to save PAT token')
     } finally {
       setIsSavingPat(false)
     }
   }
 
   const handleClearPat = () => {
-    sessionStorage.removeItem(PAT_SESSION_KEY)
+    clearPatToken()
     setStoredPat(null)
     message.success('PAT token cleared from session')
   }
@@ -67,12 +65,6 @@ function GithubAccessPage() {
       } catch {
         // Keep page usable even when cached/live fetch is unavailable.
       }
-    }
-
-    // Load stored PAT from session
-    const savedPat = sessionStorage.getItem(PAT_SESSION_KEY)
-    if (savedPat) {
-      setStoredPat(savedPat)
     }
 
     loadCachedRepos()
