@@ -8,6 +8,7 @@ import BuildStatusPage from '../pages/BuildStatusPage'
 import ReleaseCutPage from '../pages/ReleaseCutPage'
 import CreatePullRequestPage from '../pages/CreatePullRequestPage'
 import JenkinsDeployPage from '../pages/JenkinsDeployPage'
+import FindDependencyPage from '../pages/FindDependencyPage'
 
 function AppRouter({ onLogout }) {
   return (
@@ -16,6 +17,7 @@ function AppRouter({ onLogout }) {
         <Route path="/pr-create" element={<CreatePullRequestPage />} />
         <Route path="/repo-tree" element={<RepoTreePage />} />
         <Route path="/spring-boot-upgrade" element={<SpringBootUpgradePage />} />
+        <Route path="/find-dependency" element={<FindDependencyPage />} />
         <Route path="/snapshot-upgrade" element={<SnapshotUpgradePage />} />
         <Route path="/release-cut" element={<ReleaseCutPage />} />
         <Route path="/jenkins-deploy" element={<JenkinsDeployPage />} />

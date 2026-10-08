@@ -8,6 +8,7 @@ import {
   SwapOutlined,
   RocketOutlined,
   CloudServerOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 
 const utilityMenuItems = [
@@ -30,6 +31,11 @@ const utilityMenuItems = [
     key: '/spring-boot-upgrade',
     icon: <CalculatorOutlined />,
     label: 'Spring Boot Upgrade',
+  },
+  {
+    key: '/find-dependency',
+    icon: <SearchOutlined />,
+    label: 'Find dependency',
   },
   {
     key: '/repo-tree',

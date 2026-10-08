@@ -1,14 +1,88 @@
 async function parseJsonSafe(response) {
-  return response.json().catch(() => ({}))
+  const raw = await response.text().catch(() => '')
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(raw)
+  } catch {
+    const trimmed = raw.trim()
+    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+      return { error: response.statusText || 'Unexpected HTML response from server' }
+    }
+
+    return { message: trimmed.slice(0, 500) }
+  }
+}
+
+function getApiErrorMessage(payload, fallbackMessage) {
+  return payload?.message || payload?.error || payload?.detail || fallbackMessage
 }
 
 const REPOS_CACHE_KEY = 'github_repos_cache_v2'
 const PAT_SESSION_KEY = 'github_pat_token'
+let reposMemoryCache = null
 
-// Get stored PAT token from session
+function normalizePat(value) {
+  const token = String(value || '').trim()
+  return token || null
+}
+
+// Get stored PAT token from session/local storage.
 function getStoredPat() {
-  if (typeof sessionStorage === 'undefined') return null
-  return sessionStorage.getItem(PAT_SESSION_KEY)
+  try {
+    const sessionToken = normalizePat(sessionStorage.getItem(PAT_SESSION_KEY))
+    if (sessionToken) {
+      return sessionToken
+    }
+  } catch {
+    // Ignore storage read failures.
+  }
+
+  try {
+    const localToken = normalizePat(localStorage.getItem(PAT_SESSION_KEY))
+    if (localToken) {
+      try {
+        sessionStorage.setItem(PAT_SESSION_KEY, localToken)
+      } catch {
+        // Ignore session write failures.
+      }
+      return localToken
+    }
+  } catch {
+    // Ignore storage read failures.
+  }
+
+  return null
+}
+
+export function getStoredPatToken() {
+  return getStoredPat()
+}
+
+export function savePatToken(token) {
+  const normalized = normalizePat(token)
+  if (!normalized) {
+    throw new Error('PAT token is required')
+  }
+
+  sessionStorage.setItem(PAT_SESSION_KEY, normalized)
+  localStorage.setItem(PAT_SESSION_KEY, normalized)
+  return normalized
+}
+
+export function clearPatToken() {
+  try {
+    sessionStorage.removeItem(PAT_SESSION_KEY)
+  } catch {
+    // Ignore storage remove failures.
+  }
+  try {
+    localStorage.removeItem(PAT_SESSION_KEY)
+  } catch {
+    // Ignore storage remove failures.
+  }
 }
 
 // Build headers with optional PAT token
@@ -22,11 +96,16 @@ function getHeadersWithPat() {
 }
 
 function readReposCache() {
+  if (Array.isArray(reposMemoryCache) && reposMemoryCache.length > 0) {
+    return reposMemoryCache
+  }
+
   try {
     const sessionRaw = sessionStorage.getItem(REPOS_CACHE_KEY)
     if (sessionRaw) {
       const sessionParsed = JSON.parse(sessionRaw)
-      if (Array.isArray(sessionParsed)) {
+      if (Array.isArray(sessionParsed) && sessionParsed.length > 0) {
+        reposMemoryCache = sessionParsed
         return sessionParsed
       }
     }
@@ -37,13 +116,27 @@ function readReposCache() {
     }
 
     const localParsed = JSON.parse(localRaw)
-    return Array.isArray(localParsed) ? localParsed : null
+    if (Array.isArray(localParsed) && localParsed.length > 0) {
+      reposMemoryCache = localParsed
+      try {
+        sessionStorage.setItem(REPOS_CACHE_KEY, JSON.stringify(localParsed))
+      } catch {
+        // Ignore session write failures.
+      }
+      return localParsed
+    }
+    return null
   } catch {
     return null
   }
 }
 
 function writeReposCache(repos) {
+  if (!Array.isArray(repos) || repos.length === 0) {
+    return
+  }
+
+  reposMemoryCache = repos
   try {
     sessionStorage.setItem(REPOS_CACHE_KEY, JSON.stringify(repos))
     localStorage.setItem(REPOS_CACHE_KEY, JSON.stringify(repos))
@@ -53,8 +146,8 @@ function writeReposCache(repos) {
 }
 
 export async function fetchGithubRepos(refresh = false) {
+  const cachedRepos = readReposCache()
   if (!refresh) {
-    const cachedRepos = readReposCache()
     if (cachedRepos) {
       return cachedRepos
     }
@@ -68,6 +161,9 @@ export async function fetchGithubRepos(refresh = false) {
   const payload = await parseJsonSafe(response)
 
   if (!response.ok || !Array.isArray(payload)) {
+    if (cachedRepos) {
+      return cachedRepos
+    }
     const message = Array.isArray(payload)
       ? 'Unable to fetch repositories'
       : payload?.message || 'Unable to fetch repositories'
@@ -82,13 +178,36 @@ export async function fetchGithubRepos(refresh = false) {
 export async function fetchPomInfo(repoFullName, branch = 'master') {
   const response = await fetch(
     `/api/github/pom?repoFullName=${encodeURIComponent(repoFullName)}&branch=${encodeURIComponent(branch)}`,
-    { credentials: 'include' }
+    {
+      credentials: 'include',
+      headers: getHeadersWithPat(),
+    }
   )
 
   const payload = await parseJsonSafe(response)
 
   if (!response.ok) {
-    throw new Error(payload?.message || 'Failed to read pom.xml')
+    throw new Error(getApiErrorMessage(payload, 'Failed to read pom.xml'))
+  }
+
+  return payload
+}
+
+export async function discoverPomDependencyGraph(request) {
+  const response = await fetch('/api/github/pom/dependency-graph', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeadersWithPat(),
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload, 'Failed to discover pom dependency graph'))
   }
 
   return payload
@@ -97,7 +216,10 @@ export async function fetchPomInfo(repoFullName, branch = 'master') {
 export async function fetchRepoBranches(repoFullName) {
   const response = await fetch(
     `/api/github/branches?repoFullName=${encodeURIComponent(repoFullName)}`,
-    { credentials: 'include' }
+    {
+      credentials: 'include',
+      headers: getHeadersWithPat(),
+    }
   )
 
   const payload = await parseJsonSafe(response)
@@ -118,6 +240,7 @@ export async function createUpgradePullRequest(request) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })
@@ -131,12 +254,53 @@ export async function createUpgradePullRequest(request) {
   return payload
 }
 
+export async function createUpgradeBranch(request) {
+  const response = await fetch('/api/github/upgrade-branch', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeadersWithPat(),
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Failed to create or update branch for Spring Boot upgrade')
+  }
+
+  return payload
+}
+
+export async function createUpgradePullRequestOnly(request) {
+  const response = await fetch('/api/github/upgrade-pr/create', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeadersWithPat(),
+    },
+    body: JSON.stringify(request),
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Failed to create Spring Boot upgrade pull request')
+  }
+
+  return payload
+}
+
 export async function previewUpgradePullRequest(request) {
   const response = await fetch('/api/github/upgrade-pr/preview', {
     method: 'POST',
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })

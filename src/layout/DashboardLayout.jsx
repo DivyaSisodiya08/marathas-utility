@@ -10,6 +10,7 @@ const pageTitles = {
   '/pr-create': 'Create Pull Request',
   '/repo-tree': 'Repo Dependency Tree',
   '/spring-boot-upgrade': 'Spring Boot Upgrade',
+  '/find-dependency': 'Find dependency',
   '/snapshot-upgrade': 'Snapshot Upgrade',
   '/release-cut': 'Release Cut',
   '/jenkins-deploy': 'Jenkins Deploy',
