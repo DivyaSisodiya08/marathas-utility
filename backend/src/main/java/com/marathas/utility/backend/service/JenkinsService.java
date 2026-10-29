@@ -169,7 +169,10 @@ public class JenkinsService {
     public List<Map<String, String>> fetchBuilds(String jobPath, Integer limit) {
         int maxRows = sanitizeLimit(limit);
         String normalizedJobPath = normalizeJobPath(jobPath, true);
-        String apiUrl = buildJobApiUrl(normalizedJobPath);
+        String tree = URLEncoder.encode(
+                "builds[number,displayName,url,result,building,timestamp,duration]{0," + maxRows + "}",
+                StandardCharsets.UTF_8);
+        String apiUrl = buildJobBaseUrl(normalizedJobPath) + "/api/json?tree=" + tree;
 
         JsonNode response = getJson(apiUrl);
         if (response == null || !response.path("builds").isArray()) {
@@ -328,8 +331,8 @@ public class JenkinsService {
 
     private String buildJobApiUrl(String normalizedJobPath) {
         String tree = URLEncoder.encode(
-            "name,url,color,jobs[name,url,color],builds[number,displayName,url,result,building,timestamp,duration]",
-            StandardCharsets.UTF_8);
+                "name,url,color,jobs[name,url,color],builds[number,displayName,url,result,building,timestamp,duration]",
+                StandardCharsets.UTF_8);
         return buildJobBaseUrl(normalizedJobPath) + "/api/json?tree=" + tree;
     }
 
