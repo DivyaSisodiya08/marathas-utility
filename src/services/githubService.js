@@ -371,6 +371,22 @@ export async function createPullRequest(request) {
   return payload
 }
 
+export async function createGithubBranch({ repoFullName, sourceBranch, branchName }) {
+  const query = new URLSearchParams({ repoFullName, sourceBranch, branchName })
+  const response = await fetch(`/api/github/branch?${query}`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+
+  const payload = await parseJsonSafe(response)
+
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload, 'Failed to create branch'))
+  }
+
+  return payload
+}
+
 export async function createReleaseCut(request) {
   const response = await fetch('/api/github/release-cut', {
     method: 'POST',

@@ -109,8 +109,9 @@ public class GithubController {
     @PostMapping("/branch")
     public Map<String, String> createBranch(
             @RequestParam String repoFullName,
+            @RequestParam(defaultValue = "master") String sourceBranch,
             @RequestParam String branchName) {
-        return githubOAuthService.createBranch(repoFullName, branchName);
+        return githubOAuthService.createBranch(repoFullName, sourceBranch, branchName);
     }
 
     @PostMapping("/pr")

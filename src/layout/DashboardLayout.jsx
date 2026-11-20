@@ -1,5 +1,6 @@
 import { Button, Layout, Space, Typography } from 'antd'
 import { LogoutOutlined } from '@ant-design/icons'
+import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import AppSidebar from '../components/AppSidebar'
 
@@ -7,6 +8,7 @@ const { Header, Sider, Content, Footer } = Layout
 const { Title } = Typography
 
 const pageTitles = {
+  '/': 'Home',
   '/pr-create': 'Create Pull Request',
   '/repo-tree': 'Repo Dependency Tree',
   '/spring-boot-upgrade': 'Spring Boot Upgrade',
@@ -21,12 +23,23 @@ const pageTitles = {
 function DashboardLayout({ onLogout }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const pageTitle = pageTitles[location.pathname] || 'Marathas Utility'
 
   return (
     <Layout className="app-shell">
-      <Sider breakpoint="lg" collapsedWidth={70}>
-        <AppSidebar selectedKey={location.pathname} onNavigate={navigate} />
+      <Sider
+        breakpoint="lg"
+        collapsed={sidebarCollapsed}
+        collapsedWidth={70}
+        collapsible
+        onCollapse={setSidebarCollapsed}
+      >
+        <AppSidebar
+          selectedKey={location.pathname}
+          onNavigate={navigate}
+          collapsed={sidebarCollapsed}
+        />
       </Sider>
       <Layout>
         <Header className="app-header">

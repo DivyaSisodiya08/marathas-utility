@@ -1,7 +1,7 @@
-import { Alert, Button, Card, Form, Input, Select, Space, Spin, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, Form, Input, Select, Space, Spin, Typography, message } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { BranchesOutlined, GithubOutlined } from '@ant-design/icons'
-import { createPullRequest, fetchGithubRepos, fetchRepoBranches } from '../services/githubService'
+import { createGithubBranch, createPullRequest, fetchGithubRepos, fetchRepoBranches } from '../services/githubService'
 
 const { Text } = Typography
 const { TextArea } = Input
@@ -18,6 +18,7 @@ function CreatePullRequestPage() {
     const [form] = Form.useForm()
 
     const selectedRepoFullName = Form.useWatch('repoFullName', form)
+    const branchMode = Form.useWatch('branchMode', form) ?? 'existing'
 
     useEffect(() => {
         let isMounted = true
@@ -97,6 +98,7 @@ function CreatePullRequestPage() {
             form.setFieldsValue({
                 baseBranch: defaultBase,
                 compareBranch: '',
+                newBranchName: '',
             })
         } catch (error) {
             setBranches([])
@@ -124,14 +126,27 @@ function CreatePullRequestPage() {
     }
 
     const handleCreatePr = async (values) => {
+        if (!values.branchMode) {
+            message.warning('Select a branch option (New or Existing)')
+            return
+        }
+
         try {
             setCreatingPr(true)
             setResult(null)
 
+            const compareBranch = values.branchMode === 'new'
+                ? (await createGithubBranch({
+                    repoFullName: values.repoFullName,
+                    sourceBranch: values.baseBranch,
+                    branchName: values.newBranchName,
+                })).branchName
+                : values.compareBranch
+
             const payload = {
                 repoFullName: values.repoFullName,
                 baseBranch: values.baseBranch,
-                compareBranch: values.compareBranch,
+                compareBranch,
                 title: values.title,
                 body: values.body || '',
             }
@@ -204,11 +219,41 @@ function CreatePullRequestPage() {
                                 />
                             </Form.Item>
 
+                            <div>
+                                <Form.Item label="Compare Branch Option" style={{ marginBottom: 0 }}>
+                                    <Space size={16}>
+                                        <Checkbox
+                                            checked={branchMode === 'new'}
+                                            onChange={(event) => {
+                                                form.setFieldValue('branchMode', event.target.checked ? 'new' : '')
+                                                setResult(null)
+                                            }}
+                                        >
+                                            New Branch
+                                        </Checkbox>
+                                        <Checkbox
+                                            checked={branchMode === 'existing'}
+                                            onChange={(event) => {
+                                                form.setFieldValue('branchMode', event.target.checked ? 'existing' : '')
+                                                setResult(null)
+                                            }}
+                                        >
+                                            Existing Branch
+                                        </Checkbox>
+                                    </Space>
+                                </Form.Item>
+                                <Form.Item name="branchMode" initialValue="existing" hidden>
+                                    <Input type="hidden" />
+                                </Form.Item>
+                            </div>
+                        </div>
+
+                        {branchMode === 'existing' ? (
                             <Form.Item
                                 name="compareBranch"
                                 label="Compare Branch"
                                 rules={[{ required: true, message: 'Compare branch is required' }]}
-                                style={{ marginBottom: 0 }}
+                                style={{ maxWidth: 720 }}
                             >
                                 <Select
                                     showSearch
@@ -220,7 +265,20 @@ function CreatePullRequestPage() {
                                     optionFilterProp="label"
                                 />
                             </Form.Item>
-                        </div>
+                        ) : (
+                            <Form.Item
+                                name="newBranchName"
+                                label="New Branch Name"
+                                rules={[{ required: true, whitespace: true, message: 'New branch name is required' }]}
+                                style={{ maxWidth: 720 }}
+                            >
+                                <Input
+                                    placeholder="Enter a new branch name"
+                                    disabled={!selectedRepoFullName}
+                                    onChange={(event) => onCompareBranchChange(event.target.value)}
+                                />
+                            </Form.Item>
+                        )}
 
                         <Form.Item
                             name="title"

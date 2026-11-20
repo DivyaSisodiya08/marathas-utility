@@ -1,5 +1,6 @@
 import { Menu } from 'antd'
 import {
+  AppstoreOutlined,
   PullRequestOutlined,
   ApartmentOutlined,
   CalculatorOutlined,
@@ -11,27 +12,38 @@ import {
   SearchOutlined,
 } from '@ant-design/icons'
 
-const utilityMenuItems = [
+export const utilityMenuItems = [
   {
-    key: '/pr-create',
-    icon: <PullRequestOutlined />,
-    label: 'Create PR',
+    key: '/',
+    icon: <AppstoreOutlined />,
+    label: 'Home',
   },
   {
     key: '/snapshot-upgrade',
     icon: <SwapOutlined />,
     label: 'Snapshot Upgrade',
   },
-  {
+    {
     key: '/build-status',
     icon: <DeploymentUnitOutlined />,
     label: 'Build Status',
   },
-  {
+    {
     key: '/spring-boot-upgrade',
     icon: <CalculatorOutlined />,
     label: 'Spring Boot Upgrade',
   },
+    {
+    key: '/release-cut',
+    icon: <RocketOutlined />,
+    label: 'Release Cut',
+  },
+  {
+    key: '/pr-create',
+    icon: <PullRequestOutlined />,
+    label: 'Create PR',
+  },
+
   {
     key: '/find-dependency',
     icon: <SearchOutlined />,
@@ -42,11 +54,7 @@ const utilityMenuItems = [
     icon: <ApartmentOutlined />,
     label: 'Repo Dependency Tree',
   },
-  {
-    key: '/release-cut',
-    icon: <RocketOutlined />,
-    label: 'Release Cut',
-  },
+
   {
     key: '/jenkins-deploy',
     icon: <CloudServerOutlined />,
@@ -60,10 +68,16 @@ const utilityMenuItems = [
 
 ]
 
-function AppSidebar({ selectedKey, onNavigate }) {
+function AppSidebar({ selectedKey, onNavigate, collapsed }) {
   return (
     <>
-      <div className="brand">Marathas Utility</div>
+      {collapsed ? (
+        <div className="brand brand-compact" title="Marathas Utility" aria-label="Marathas Utility">
+          MU
+        </div>
+      ) : (
+        <div className="brand">Marathas Utility</div>
+      )}
       <Menu
         theme="dark"
         mode="inline"

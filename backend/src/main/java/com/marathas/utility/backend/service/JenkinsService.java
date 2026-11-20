@@ -247,7 +247,7 @@ public class JenkinsService {
     private JsonNode getJson(String url) {
         try {
             return restClient.get()
-                    .uri(Objects.requireNonNull(url))
+                    .uri(URI.create(Objects.requireNonNull(url)))
                     .headers(this::applyAuthHeaders)
                     .retrieve()
                     .body(JsonNode.class);

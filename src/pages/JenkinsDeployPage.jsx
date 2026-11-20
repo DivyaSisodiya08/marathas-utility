@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
@@ -54,6 +54,12 @@ function toJenkinsJobPath(input) {
     return raw
 }
 
+async function fetchRecentBuilds(jobPath) {
+    const path = toJenkinsJobPath(jobPath)
+    const data = await fetchJenkinsBuilds(path, 10)
+    return [...data].sort((first, second) => Number(second.number) - Number(first.number))
+}
+
 function JenkinsDeployPage() {
     const [loadingConfig, setLoadingConfig] = useState(false)
     const [loadingJobs, setLoadingJobs] = useState(false)
@@ -67,140 +73,72 @@ function JenkinsDeployPage() {
     const [builds, setBuilds] = useState([])
     const [buildsJobPath, setBuildsJobPath] = useState('')
     const [jobFilter, setJobFilter] = useState('')
-    const checkedJob = jobs.find((job) => job.jobPath === buildsJobPath)
-    const outputJobs = buildsJobPath
-        ? [checkedJob || { name: buildsJobPath, jobPath: buildsJobPath }]
-        : jobs
+    const selectedJob = jobs.find((job) => job.jobPath === (buildsJobPath || selectedJobPath))
     const normalizedFilter = jobFilter.trim().toLowerCase()
-    const filteredJobs = outputJobs.filter((job) =>
-        [job.name, job.jobPath, job.status].some((value) =>
+    const filteredBuilds = builds.filter((build) =>
+        [build.displayName, build.number, build.result].some((value) =>
             String(value || '').toLowerCase().includes(normalizedFilter)
         )
     )
 
-    const jobColumns = useMemo(
-        () => [
-            {
-                title: 'Job Name',
-                dataIndex: 'name',
-                key: 'name',
+    const buildColumns = [
+        {
+            title: 'Build',
+            dataIndex: 'displayName',
+            key: 'displayName',
+            render: (_, row) => row.displayName || `#${row.number || '-'}`,
+        },
+        {
+            title: 'Status',
+            key: 'result',
+            render: (_, row) => {
+                const building = row.building === true || row.building === 'true'
+                const text = building ? 'BUILDING' : row.result || 'UNKNOWN'
+                return <Tag color={statusColor(row.result, building)}>{text}</Tag>
             },
-            {
-                title: 'Job Path',
-                dataIndex: 'jobPath',
-                key: 'jobPath',
+        },
+        {
+            title: 'Run Date / Time',
+            dataIndex: 'timestamp',
+            key: 'timestamp',
+            render: (value) => {
+                if (!value) {
+                    return '-'
+                }
+                const millis = Number(value)
+                if (Number.isNaN(millis)) {
+                    return value
+                }
+                return new Date(millis).toLocaleString()
             },
-            {
-                title: 'Status',
-                dataIndex: 'status',
-                key: 'status',
-                render: (value) => {
-                    const normalized = (value || '').toLowerCase()
-                    const color =
-                        normalized === 'success'
-                            ? 'success'
-                            : normalized === 'failed'
-                                ? 'error'
-                                : normalized === 'unstable'
-                                    ? 'warning'
-                                    : normalized === 'running'
-                                        ? 'processing'
-                                        : 'default'
-                    return <Tag color={color}>{value || 'unknown'}</Tag>
-                },
+        },
+        {
+            title: 'Duration',
+            dataIndex: 'duration',
+            key: 'duration',
+            render: (value) => {
+                const millis = Number(value)
+                if (Number.isNaN(millis)) {
+                    return '-'
+                }
+                const seconds = Math.max(0, Math.round(millis / 1000))
+                return `${seconds}s`
             },
-            {
-                title: 'Open',
-                dataIndex: 'url',
-                key: 'url',
-                render: (url) =>
-                    url ? (
-                        <a href={url} target="_blank" rel="noreferrer">
-                            View Job
-                        </a>
-                    ) : (
-                        '-'
-                    ),
-            },
-            {
-                title: 'Action',
-                key: 'action',
-                render: (_, row) => (
-                    <Button size="small" onClick={() => setSelectedJobPath(row.jobPath || '')}>
-                        Select
-                    </Button>
+        },
+        {
+            title: 'Open',
+            dataIndex: 'url',
+            key: 'url',
+            render: (url) =>
+                url ? (
+                    <a href={url} target="_blank" rel="noreferrer">
+                        View Build
+                    </a>
+                ) : (
+                    '-'
                 ),
-            },
-        ],
-        []
-    )
-
-    const buildColumns = useMemo(
-        () => [
-            {
-                title: 'Job',
-                key: 'job',
-                render: () => checkedJob?.name || buildsJobPath,
-            },
-            {
-                title: 'Build',
-                dataIndex: 'displayName',
-                key: 'displayName',
-                render: (_, row) => row.displayName || `#${row.number || '-'}`,
-            },
-            {
-                title: 'Status',
-                key: 'result',
-                render: (_, row) => {
-                    const building = row.building === true || row.building === 'true'
-                    const text = building ? 'BUILDING' : row.result || 'UNKNOWN'
-                    return <Tag color={statusColor(row.result, building)}>{text}</Tag>
-                },
-            },
-            {
-                title: 'Run Date / Time',
-                dataIndex: 'timestamp',
-                key: 'timestamp',
-                render: (value) => {
-                    if (!value) {
-                        return '-'
-                    }
-                    const millis = Number(value)
-                    if (Number.isNaN(millis)) {
-                        return value
-                    }
-                    return new Date(millis).toLocaleString()
-                },
-            },
-            {
-                title: 'Duration',
-                dataIndex: 'duration',
-                key: 'duration',
-                render: (value) => {
-                    const millis = Number(value)
-                    if (Number.isNaN(millis)) {
-                        return '-'
-                    }
-                    const seconds = Math.max(0, Math.round(millis / 1000))
-                    return `${seconds}s`
-                },
-            },
-            {
-                title: 'Open',
-                dataIndex: 'url',
-                key: 'url',
-                render: (url) =>
-                    url ? (
-                        <a href={url} target="_blank" rel="noreferrer">
-                            View Build
-                        </a>
-                    ) : (
-                        '-'
-                    ),
-            },
-        ],
-        [checkedJob?.name, buildsJobPath]
-    )
+        },
+    ]
 
     useEffect(() => {
         const loadConfig = async () => {
@@ -218,12 +156,18 @@ function JenkinsDeployPage() {
                     const data = await fetchJenkinsJobs(defaultPath, false)
                     setJobs(data)
                     if (data.length > 0) {
-                        setSelectedJobPath((current) => {
-                            if (current && data.some((job) => job.jobPath === current)) {
-                                return current
-                            }
-                            return data[0]?.jobPath || current
-                        })
+                        const initialJobPath = data.some((job) => job.jobPath === defaultPath)
+                            ? defaultPath
+                            : data[0]?.jobPath || defaultPath
+                        setSelectedJobPath(initialJobPath)
+                        setLoadingBuilds(true)
+                        try {
+                            const initialBuilds = await fetchRecentBuilds(initialJobPath)
+                            setBuilds(initialBuilds)
+                            setBuildsJobPath(initialJobPath)
+                        } finally {
+                            setLoadingBuilds(false)
+                        }
                     }
                 }
             } catch (error) {
@@ -248,13 +192,13 @@ function JenkinsDeployPage() {
             setJobFilter('')
 
             if (data.length > 0) {
-                const firstJobPath = data[0]?.jobPath || ''
-                setSelectedJobPath((current) => {
-                    if (current && data.some((job) => job.jobPath === current)) {
-                        return current
-                    }
-                    return firstJobPath
-                })
+                const nextJobPath = data.some((job) => job.jobPath === selectedJobPath)
+                    ? selectedJobPath
+                    : data[0]?.jobPath || ''
+                setSelectedJobPath(nextJobPath)
+                if (nextJobPath) {
+                    await loadBuilds(nextJobPath, false)
+                }
             }
 
             message.success(`Loaded ${data.length} Jenkins jobs`)
@@ -265,8 +209,8 @@ function JenkinsDeployPage() {
         }
     }
 
-    const loadBuilds = async () => {
-        const path = toJenkinsJobPath(selectedJobPath)
+    const loadBuilds = async (jobPath = selectedJobPath, notify = true) => {
+        const path = toJenkinsJobPath(jobPath)
         if (!path) {
             message.warning('Select a Jenkins job first')
             return
@@ -274,12 +218,17 @@ function JenkinsDeployPage() {
 
         try {
             setLoadingBuilds(true)
-            const data = await fetchJenkinsBuilds(path, 10)
-            setBuilds([...data].sort((first, second) => Number(second.number) - Number(first.number)))
+            setBuilds([])
             setBuildsJobPath(path)
             setJobFilter('')
-            message.success(`Loaded ${data.length} builds`)
+            const data = await fetchRecentBuilds(path)
+            setBuilds(data)
+            setBuildsJobPath(path)
+            if (notify) {
+                message.success(`Loaded ${data.length} builds`)
+            }
         } catch (error) {
+            setBuilds([])
             message.error(error.message || 'Failed to fetch Jenkins builds')
         } finally {
             setLoadingBuilds(false)
@@ -297,7 +246,7 @@ function JenkinsDeployPage() {
             setDeploying(true)
             const result = await triggerJenkinsDeploy({ jobPath: path })
             message.success(`Deployment queued for ${result.jobPath}`)
-            await loadBuilds()
+            await loadBuilds(path, false)
         } catch (error) {
             message.error(error.message || 'Failed to trigger deployment')
         } finally {
@@ -343,7 +292,16 @@ function JenkinsDeployPage() {
                             optionFilterProp="label"
                             placeholder="Select a Jenkins job"
                             value={selectedJobPath || undefined}
-                            onChange={(value) => setSelectedJobPath(value || '')}
+                            onChange={(value) => {
+                                const path = value || ''
+                                setSelectedJobPath(path)
+                                if (path) {
+                                    void loadBuilds(path, false)
+                                } else {
+                                    setBuilds([])
+                                    setBuildsJobPath('')
+                                }
+                            }}
                             options={jobs.map((job) => ({
                                 value: job.jobPath,
                                 label: `${job.name} (${job.status || 'unknown'})`,
@@ -367,45 +325,37 @@ function JenkinsDeployPage() {
                             </Button>
                         </Col>
                         <Col xs={24} md={12}>
-                            <Button block loading={loadingBuilds} onClick={loadBuilds}>
+                            <Button block loading={loadingBuilds} onClick={() => loadBuilds()}>
                                 Check Status
                             </Button>
                         </Col>
                     </Row>
                 </Card>
 
-                <Card type="inner" title="Jenkins Jobs">
+                <Card
+                    type="inner"
+                    title={`Build Status${selectedJob ? `: ${selectedJob.name}` : ''}`}
+                >
                     <Input
                         allowClear
-                        aria-label="Filter Jenkins jobs"
-                        placeholder="Filter jobs by name, path, or status"
+                        aria-label="Filter build status"
+                        placeholder="Filter builds by number or status"
                         value={jobFilter}
                         onChange={(event) => setJobFilter(event.target.value)}
                         style={{ marginBottom: 12 }}
                     />
                     <Table
-                        rowKey={(row) => row.jobPath || row.url || row.name}
-                        dataSource={filteredJobs}
-                        columns={jobColumns}
-                        loading={loadingJobs}
-                        pagination={{ pageSize: 10 }}
-                        scroll={{ x: 900 }}
-                        locale={{ emptyText: normalizedFilter ? 'No matching Jenkins jobs' : 'No Jenkins jobs found for this path' }}
-                    />
-                </Card>
-
-                <Card
-                    type="inner"
-                    title={`Build History${buildsJobPath ? `: ${checkedJob?.name || buildsJobPath}` : ''}`}
-                >
-                    <Table
                         rowKey={(row) => row.url || `${row.number}-${row.timestamp}`}
-                        dataSource={builds}
+                        dataSource={filteredBuilds}
                         columns={buildColumns}
                         loading={loadingBuilds}
                         pagination={{ pageSize: 10 }}
                         scroll={{ x: 900 }}
-                        locale={{ emptyText: 'No Jenkins builds found for this job' }}
+                        locale={{
+                            emptyText: normalizedFilter
+                                ? 'No matching builds'
+                                : (buildsJobPath ? 'No Jenkins builds found for this job' : 'Select a Jenkins job to view its builds'),
+                        }}
                     />
                 </Card>
             </Space>
