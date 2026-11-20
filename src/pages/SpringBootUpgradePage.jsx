@@ -51,43 +51,12 @@ const KNOWN_DEPENDENCY_GROUPS = {
 
 const DEFAULT_DEPENDENCY_TREE_DATA = [
   {
-    key: 'fp',
-    title: 'FP (FamilyPrint)',
+    key: 'print-common',
+    title: 'print-common',
     children: [
-      {
-        key: 'sbs',
-        title: 'SBS',
-        children: [
-          {
-            key: 'salesforce-client',
-            title: 'Salesforce Client',
-            children: [
-              {
-                key: 'printcom',
-                title: 'Printcom',
-                children: [
-                  {
-                    key: 'pr-b',
-                    title: 'PR B',
-                    children: [
-                      {
-                        key: 'pr-admin',
-                        title: 'PR Admin',
-                        children: [
-                          {
-                            key: 'pr-fact',
-                            title: 'PR Fact',
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
+      { key: 'print-factory', title: 'print-factory' },
+      { key: 'print-admin', title: 'print-admin' },
+      { key: 'print-broker', title: 'print-broker' },
     ],
   },
 ]
@@ -274,7 +243,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
   const [loadingDependencyGraph, setLoadingDependencyGraph] = useState(false)
   const [dependencyRepoSearch, setDependencyRepoSearch] = useState('')
   const [selectedDependencyGroup, setSelectedDependencyGroup] = useState('')
-  const [dependencyExpandedKeys, setDependencyExpandedKeys] = useState([])
+  const [dependencyExpandedKeys, setDependencyExpandedKeys] = useState(['print-common'])
   const [repoFinderSearch, setRepoFinderSearch] = useState('')
   const [repoFinderSelected, setRepoFinderSelected] = useState([])
 
@@ -770,6 +739,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
       })
       const discoveredTree = buildTreeFromDependencyGraph(payload)
       setDependencyTreeData(discoveredTree)
+      setDependencyExpandedKeys(collectNodeKeys(discoveredTree))
       message.success(`Discovered dependency graph for ${dependencyRepos.length} repositories`)
     } catch (error) {
       message.error(error.message || 'Failed to discover pom dependencies')
@@ -971,7 +941,9 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
       const state = buildStates[node.key] || { status: 'idle' }
       const childCount = (dependencyChildMap[node.key] || []).length
       const parentKey = dependencyParentMap[node.key]
-      const parentLabel = parentKey ? (dependencyTitleMap[parentKey] || parentKey) : 'Root'
+      const parentLabel = parentKey ? (dependencyTitleMap[parentKey] || parentKey) : null
+      const nodeDepth = String(node.key).split(' -> ').length - 1
+      const levelLabel = nodeDepth === 0 ? 'ROOT' : `LEVEL ${nodeDepth}`
       const statusTag =
         state.status === 'completed'
           ? <Tag color="success">Completed</Tag>
@@ -982,14 +954,21 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
       return {
         key: node.key,
         title: (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBlock: 2 }}>
-            <Space size={6} wrap>
-              <Text strong>{node.title}</Text>
+          <div className={`dependency-tree-node ${parentLabel ? 'dependency-tree-node-child' : 'dependency-tree-node-root'}`}>
+            <div className="dependency-tree-node-header">
+              <Tag className="dependency-level-tag" color={parentLabel ? 'blue' : 'volcano'}>
+                {levelLabel}
+              </Tag>
+              <Text strong className="dependency-node-name">{node.title}</Text>
               {!forceDependencyOnly ? statusTag : null}
-            </Space>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Parent: {parentLabel} | Dependents: {childCount}
-            </Text>
+            </div>
+            <div className="dependency-tree-node-details">
+              <span>
+                {parentLabel ? <><strong>Parent:</strong> {parentLabel}</> : <strong>Top-level repository</strong>}
+              </span>
+              <span className="dependency-detail-divider" />
+              <span><strong>Child repositories:</strong> {childCount}</span>
+            </div>
           </div>
         ),
         children: Array.isArray(node.children) ? renderDependencyNodes(node.children) : [],
@@ -1487,6 +1466,7 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                 <Button
                   onClick={() => {
                     setDependencyTreeData(DEFAULT_DEPENDENCY_TREE_DATA)
+                    setDependencyExpandedKeys(['print-common'])
                     setDependencyRepos([])
                     setDependencyRepoSearch('')
                     message.success('Reset to default dependency template')
@@ -1501,6 +1481,10 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
           <Row gutter={[16, 16]}>
             <Col xs={24} lg={forceDependencyOnly ? 24 : 14}>
               <Card type="inner" title="Dependency Tree">
+                <div style={{ marginBottom: 10 }}>
+                  <Tag color="gold">Example hierarchy</Tag>
+                  <Text type="secondary"> print-common is the parent; the other repositories are child/sibling repositories.</Text>
+                </div>
                 <Space wrap size={8} style={{ marginBottom: 10 }}>
                   <Tag color="blue">Nodes: {graphSummary.totalNodes}</Tag>
                   <Tag color="purple">Edges: {graphSummary.edges}</Tag>
@@ -1509,6 +1493,9 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                 </Space>
 
                 <Space wrap size={8} style={{ marginBottom: 10 }}>
+                  <Tag color="volcano">Root / starting repository</Tag>
+                  <Tag color="blue">Child repository</Tag>
+                  <Text type="secondary">Read from left to right: parent → child.</Text>
                   {!forceDependencyOnly ? <Tag>Pending</Tag> : null}
                   {!forceDependencyOnly ? <Tag color="processing">Running</Tag> : null}
                   {!forceDependencyOnly ? <Tag color="success">Completed</Tag> : null}
@@ -1520,12 +1507,24 @@ function SpringBootUpgradePage({ forceDependencyOnly = false } = {}) {
                   </Button>
                 </Space>
 
-                <div style={{ marginBottom: 10, padding: '8px 10px', background: '#fafafa', borderRadius: 8 }}>
-                  <Text type="secondary" style={{ display: 'block' }}>Selected Dependency Path</Text>
-                  <Text strong>{selectedPath.length > 0 ? selectedPath.join(' -> ') : 'No node selected'}</Text>
+                <div className="selected-dependency-path" style={{ marginBottom: 10, padding: '8px 10px', background: '#f5f5f5', borderRadius: 8 }}>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>Selected Dependency Path</Text>
+                  {selectedPath.length > 0 ? (
+                    <Space wrap size={6}>
+                      {selectedPath.map((title, index) => (
+                        <Space key={`${title}-${index}`} size={6}>
+                          {index > 0 ? <Text type="secondary">→</Text> : null}
+                          <Tag color={index === 0 ? 'volcano' : 'blue'}>{index === 0 ? `ROOT: ${title}` : `CHILD: ${title}`}</Tag>
+                        </Space>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Text strong>No node selected</Text>
+                  )}
                 </div>
 
                 <Tree
+                  className="dependency-tree"
                   blockNode
                   expandedKeys={dependencyExpandedKeys}
                   onExpand={(keys) => setDependencyExpandedKeys(keys)}
