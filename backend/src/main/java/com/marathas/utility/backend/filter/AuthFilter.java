@@ -1,6 +1,7 @@
 package com.marathas.utility.backend.filter;
 
 import com.marathas.utility.backend.controller.AuthController;
+import com.marathas.utility.backend.service.GithubPatContext;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -26,7 +27,12 @@ public class AuthFilter implements Filter {
         String path = httpRequest.getRequestURI();
 
         if (isPublicPath(path)) {
-            chain.doFilter(request, response);
+            GithubPatContext.clear();
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                GithubPatContext.clear();
+            }
             return;
         }
 
@@ -34,13 +40,22 @@ public class AuthFilter implements Filter {
                 .getAttribute(AuthController.AUTHENTICATED_USER_KEY);
 
         if (authenticatedUser == null) {
+            GithubPatContext.clear();
             httpResponse.setStatus(401);
             httpResponse.setContentType("application/json");
             httpResponse.getWriter().write("{\"error\":\"Unauthorized\"}");
             return;
         }
 
-        chain.doFilter(request, response);
+        String sessionPat = (String) httpRequest.getSession(false).getAttribute("github_pat_token");
+        String headerPat = httpRequest.getHeader("X-GitHub-PAT");
+        GithubPatContext.set(headerPat != null && !headerPat.isBlank() ? headerPat : sessionPat);
+
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            GithubPatContext.clear();
+        }
     }
 
     private boolean isPublicPath(String path) {

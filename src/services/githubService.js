@@ -21,7 +21,6 @@ function getApiErrorMessage(payload, fallbackMessage) {
 }
 
 const REPOS_CACHE_KEY = 'github_repos_cache_v2'
-const PAT_SESSION_KEY = 'github_pat_token'
 let reposMemoryCache = null
 
 function normalizePat(value) {
@@ -29,70 +28,66 @@ function normalizePat(value) {
   return token || null
 }
 
-// Get stored PAT token from session/local storage.
-function getStoredPat() {
-  try {
-    const sessionToken = normalizePat(sessionStorage.getItem(PAT_SESSION_KEY))
-    if (sessionToken) {
-      return sessionToken
-    }
-  } catch {
-    // Ignore storage read failures.
+export async function getStoredPatToken() {
+  const response = await fetch('/api/github/pat/status', { credentials: 'include' })
+  if (!response.ok) {
+    return null
   }
-
-  try {
-    const localToken = normalizePat(localStorage.getItem(PAT_SESSION_KEY))
-    if (localToken) {
-      try {
-        sessionStorage.setItem(PAT_SESSION_KEY, localToken)
-      } catch {
-        // Ignore session write failures.
-      }
-      return localToken
-    }
-  } catch {
-    // Ignore storage read failures.
-  }
-
-  return null
+  const payload = await parseJsonSafe(response)
+  return payload?.configured ? (payload.login || 'configured') : null
 }
 
-export function getStoredPatToken() {
-  return getStoredPat()
+async function requireConfiguredPat() {
+  const response = await fetch('/api/github/pat/status', { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error('Unable to verify GitHub PAT. Log in again.')
+  }
+  const payload = await parseJsonSafe(response)
+  if (!payload?.configured) {
+    throw new Error('GitHub PAT is not configured. Save a PAT in GitHub Access first.')
+  }
 }
 
-export function savePatToken(token) {
+export function clearRepositoryCache() {
+  reposMemoryCache = null
+  try {
+    sessionStorage.removeItem(REPOS_CACHE_KEY)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+  try {
+    localStorage.removeItem(REPOS_CACHE_KEY)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+export async function savePatToken(token) {
   const normalized = normalizePat(token)
   if (!normalized) {
     throw new Error('PAT token is required')
   }
 
-  sessionStorage.setItem(PAT_SESSION_KEY, normalized)
-  localStorage.setItem(PAT_SESSION_KEY, normalized)
-  return normalized
+  const response = await fetch('/api/github/pat', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pat: normalized }),
+  })
+  const payload = await parseJsonSafe(response)
+  if (!response.ok || !payload?.configured) {
+    throw new Error(payload?.message || 'Failed to save PAT token')
+  }
+  clearRepositoryCache()
+  return payload.login || 'configured'
 }
 
-export function clearPatToken() {
-  try {
-    sessionStorage.removeItem(PAT_SESSION_KEY)
-  } catch {
-    // Ignore storage remove failures.
-  }
-  try {
-    localStorage.removeItem(PAT_SESSION_KEY)
-  } catch {
-    // Ignore storage remove failures.
-  }
-}
-
-// Build headers with optional PAT token
-function getHeadersWithPat() {
-  const headers = {}
-  const pat = getStoredPat()
-  if (pat) {
-    headers['X-GitHub-PAT'] = pat
-  }
-  return headers
+export async function clearPatToken() {
+  clearRepositoryCache()
+  await fetch('/api/github/pat', {
+    method: 'DELETE',
+    credentials: 'include',
+  })
 }
 
 function readReposCache() {
@@ -146,6 +141,7 @@ function writeReposCache(repos) {
 }
 
 export async function fetchGithubRepos(refresh = false) {
+  await requireConfiguredPat()
   const cachedRepos = readReposCache()
   if (!refresh) {
     if (cachedRepos) {
@@ -155,7 +151,7 @@ export async function fetchGithubRepos(refresh = false) {
 
   const response = await fetch(`/api/github/repos?refresh=${refresh}`, {
     credentials: 'include',
-    headers: getHeadersWithPat(),
+
   })
 
   const payload = await parseJsonSafe(response)
@@ -176,11 +172,12 @@ export async function fetchGithubRepos(refresh = false) {
 }
 
 export async function fetchPomInfo(repoFullName, branch = 'master') {
+  await requireConfiguredPat()
   const response = await fetch(
     `/api/github/pom?repoFullName=${encodeURIComponent(repoFullName)}&branch=${encodeURIComponent(branch)}`,
     {
       credentials: 'include',
-      headers: getHeadersWithPat(),
+  
     }
   )
 
@@ -194,12 +191,12 @@ export async function fetchPomInfo(repoFullName, branch = 'master') {
 }
 
 export async function discoverPomDependencyGraph(request) {
+  await requireConfiguredPat()
   const response = await fetch('/api/github/pom/dependency-graph', {
     method: 'POST',
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })
@@ -214,11 +211,12 @@ export async function discoverPomDependencyGraph(request) {
 }
 
 export async function fetchRepoBranches(repoFullName) {
+  await requireConfiguredPat()
   const response = await fetch(
     `/api/github/branches?repoFullName=${encodeURIComponent(repoFullName)}`,
     {
       credentials: 'include',
-      headers: getHeadersWithPat(),
+  
     }
   )
 
@@ -240,7 +238,6 @@ export async function createUpgradePullRequest(request) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })
@@ -260,7 +257,6 @@ export async function createUpgradeBranch(request) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })
@@ -280,7 +276,6 @@ export async function createUpgradePullRequestOnly(request) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })
@@ -300,7 +295,6 @@ export async function previewUpgradePullRequest(request) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...getHeadersWithPat(),
     },
     body: JSON.stringify(request),
   })

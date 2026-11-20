@@ -12,7 +12,7 @@ function GithubAccessPage() {
   const [repos, setRepos] = useState([])
   const [isFetching, setIsFetching] = useState(false)
   const [patToken, setPatToken] = useState('')
-  const [storedPat, setStoredPat] = useState(() => getStoredPatToken())
+  const [storedPat, setStoredPat] = useState(null)
   const [isSavingPat, setIsSavingPat] = useState(false)
 
   const openGithub = () => {
@@ -40,10 +40,12 @@ function GithubAccessPage() {
 
     try {
       setIsSavingPat(true)
-      const savedToken = savePatToken(patToken)
+      const savedToken = await savePatToken(patToken)
       setStoredPat(savedToken)
       setPatToken('')
-      message.success('PAT token saved to session. Ready to fetch repositories!')
+      message.success(savedToken === 'configured'
+        ? 'PAT token saved to session. Ready to fetch repositories!'
+        : `PAT token validated for GitHub account ${savedToken}.`)
     } catch (error) {
       message.error(error.message || 'Failed to save PAT token')
     } finally {
@@ -51,13 +53,27 @@ function GithubAccessPage() {
     }
   }
 
-  const handleClearPat = () => {
-    clearPatToken()
+  const handleClearPat = async () => {
+    await clearPatToken()
     setStoredPat(null)
     message.success('PAT token cleared from session')
   }
 
   useEffect(() => {
+    const loadPatStatus = async () => {
+      try {
+        const patStatus = await getStoredPatToken()
+        setStoredPat(patStatus)
+        if (patStatus) {
+          await loadCachedRepos()
+        } else {
+          setRepos([])
+        }
+      } catch {
+        setStoredPat(null)
+      }
+    }
+
     const loadCachedRepos = async () => {
       try {
         const data = await fetchGithubRepos(false)
@@ -67,7 +83,7 @@ function GithubAccessPage() {
       }
     }
 
-    loadCachedRepos()
+    loadPatStatus()
   }, [])
 
   return (
