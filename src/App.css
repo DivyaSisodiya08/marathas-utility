@@ -41,3 +41,75 @@
   padding: 16px 20px 24px;
   text-align: center;
 }
+
+.dependency-tree {
+  max-height: 620px;
+  overflow: auto;
+  padding: 8px 12px 12px 4px;
+}
+
+.dependency-tree .ant-tree-treenode {
+  width: 100%;
+  min-height: 58px;
+  align-items: flex-start;
+  padding: 4px 0;
+}
+
+.dependency-tree .ant-tree-node-content-wrapper {
+  width: calc(100% - 28px);
+  min-height: 52px;
+  align-items: flex-start;
+  border-radius: 8px;
+  padding: 2px 8px 2px 4px;
+}
+
+.dependency-tree-node {
+  min-width: 280px;
+  border-left: 4px solid #1677ff;
+  border-radius: 7px;
+  background: #f8fbff;
+  padding: 7px 10px;
+}
+
+.dependency-tree-node-root {
+  border-left-color: #fa541c;
+  background: #fff7e6;
+}
+
+.dependency-tree-node-child {
+  border-left-color: #1677ff;
+}
+
+.dependency-tree-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dependency-level-tag {
+  margin-inline-end: 0;
+  min-width: 58px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.dependency-node-name {
+  font-size: 14px;
+}
+
+.dependency-tree-node-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 5px;
+  color: #595959;
+  font-size: 12px;
+}
+
+.dependency-detail-divider {
+  width: 1px;
+  height: 12px;
+  background: #d9d9d9;
+}

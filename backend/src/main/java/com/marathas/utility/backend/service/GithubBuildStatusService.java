@@ -259,15 +259,17 @@ public class GithubBuildStatusService {
     }
 
     private String getToken() {
-        String token = blankToNull(properties.getPersonalToken());
+        String token = blankToNull(GithubPatContext.get());
+        if (token == null) {
+            token = blankToNull(properties.getPersonalToken());
+        }
         if (token == null) {
             token = blankToNull(System.getenv("GITHUB_PERSONAL_TOKEN"));
         }
         if (token == null) {
             throw new ResponseStatusException(
                     UNAUTHORIZED,
-                    "GitHub personal token not configured. Set github.oauth.personal-token or "
-                    + "GITHUB_PERSONAL_TOKEN and restart backend.");
+                    "GitHub PAT is not configured for this session. Save a PAT in GitHub Access.");
         }
         return token;
     }

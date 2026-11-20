@@ -3,6 +3,7 @@ package com.marathas.utility.backend.controller;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,6 +26,8 @@ import jakarta.servlet.http.HttpSession;
 public class GithubController {
 
     private static final String REPOS_CACHE_KEY = "github_repos_cache";
+    private static final String GITHUB_PAT_SESSION_KEY = "github_pat_token";
+    private static final String GITHUB_PAT_LOGIN_SESSION_KEY = "github_pat_login";
 
     private final GithubOAuthService githubOAuthService;
     private final GithubBuildStatusService githubBuildStatusService;
@@ -40,6 +43,34 @@ public class GithubController {
         this.githubBuildStatusService = githubBuildStatusService;
         this.githubPullRequestService = githubPullRequestService;
         this.snapshotUpgradeService = snapshotUpgradeService;
+    }
+
+    @PostMapping("/pat")
+    public Map<String, String> savePat(@RequestBody Map<String, String> request, HttpSession session) {
+        String pat = request == null ? null : request.get("pat");
+        if (pat == null || pat.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "PAT token is required");
+        }
+        Map<String, String> validation = githubOAuthService.validatePat(pat);
+        session.setAttribute(GITHUB_PAT_SESSION_KEY, pat.trim());
+        session.setAttribute(GITHUB_PAT_LOGIN_SESSION_KEY, validation.get("login"));
+        return validation;
+    }
+
+    @DeleteMapping("/pat")
+    public Map<String, Boolean> clearPat(HttpSession session) {
+        session.removeAttribute(GITHUB_PAT_SESSION_KEY);
+        session.removeAttribute(GITHUB_PAT_LOGIN_SESSION_KEY);
+        return Map.of("configured", false);
+    }
+
+    @GetMapping("/pat/status")
+    public Map<String, Object> getPatStatus(HttpSession session) {
+        Object pat = session.getAttribute(GITHUB_PAT_SESSION_KEY);
+        boolean configured = pat instanceof String value && !value.isBlank();
+        Object login = session.getAttribute(GITHUB_PAT_LOGIN_SESSION_KEY);
+        return Map.of("configured", configured, "login", login == null ? "" : login.toString());
     }
 
     @GetMapping("/repos")

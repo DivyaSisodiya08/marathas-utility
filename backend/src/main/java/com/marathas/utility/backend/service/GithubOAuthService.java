@@ -2255,18 +2255,60 @@ public class GithubOAuthService {
             return overridden;
         }
 
-        String token = blankToNull(properties.getPersonalToken());
+        String token = blankToNull(GithubPatContext.get());
+        if (token == null) {
+            token = blankToNull(properties.getPersonalToken());
+        }
         if (token == null) {
             token = blankToNull(System.getenv("GITHUB_PERSONAL_TOKEN"));
         }
         if (token == null) {
             throw new ResponseStatusException(
                     UNAUTHORIZED,
-                    "GitHub personal token not configured. Set github.oauth.personal-token or "
-                    + "GITHUB_PERSONAL_TOKEN and restart backend."
+                    "GitHub PAT is not configured for this session. Save a PAT in GitHub Access."
             );
         }
         return token;
+    }
+
+    public Map<String, String> validatePat(String pat) {
+        String normalizedPat = blankToNull(pat);
+        if (normalizedPat == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "PAT token is required");
+        }
+
+        try {
+            JsonNode user = restClient.get()
+                    .uri("https://api.github.com/user")
+                    .header("Authorization", "Bearer " + normalizedPat)
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            String login = user == null ? "" : user.path("login").asText("").trim();
+            if (login.isEmpty()) {
+                throw new ResponseStatusException(UNAUTHORIZED, "GitHub PAT validation returned no account identity");
+            }
+
+            Map<String, String> result = new LinkedHashMap<>();
+            result.put("login", login);
+            result.put("configured", "true");
+            return result;
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode().value() == 401) {
+                throw new ResponseStatusException(
+                        UNAUTHORIZED,
+                        "GitHub PAT is invalid or expired. Generate a new token and try again.");
+            }
+            throw new ResponseStatusException(
+                    UNAUTHORIZED,
+                    "GitHub rejected the PAT with HTTP " + e.getStatusCode().value()
+                            + ". Check organization SSO and token permissions.");
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(NOT_FOUND, "Could not validate GitHub PAT: " + e.getMessage());
+        }
     }
 
     public String getToken(String optionalPat) {
